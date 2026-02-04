@@ -1,0 +1,25 @@
+name: aws-oidc-smoke
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::090733632671:role/GitHubActions-evscrap-deploy-dev
+          aws-region: ap-northeast-2
+
+      - name: Verify identity
+        run: aws sts get-caller-identity
