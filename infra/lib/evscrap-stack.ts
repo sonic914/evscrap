@@ -110,7 +110,7 @@ export class EvscrapStack extends cdk.Stack {
       handler: 'index.handler',
       code: lambda.Code.fromInline(`
 exports.handler = async (event) => {
-  const path = event.path || event.rawPath || '/';
+  const path = event.path || '/';
   const now = new Date().toISOString();
   
   return {
