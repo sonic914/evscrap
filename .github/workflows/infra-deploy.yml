@@ -1,0 +1,73 @@
+name: Infrastructure Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ACCOUNT_ID: "090733632671"
+
+jobs:
+  deploy:
+    name: Deploy CDK Infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: infra/package.json
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::090733632671:role/GitHubActions-evscrap-deploy-dev
+          aws-region: ap-northeast-2
+          role-session-name: GitHubActions-infra-deploy
+
+      - name: Install dependencies
+        working-directory: ./infra
+        run: npm ci
+
+      - name: CDK Synth
+        working-directory: ./infra
+        run: npx cdk synth
+
+      - name: CDK Deploy
+        working-directory: ./infra
+        run: npx cdk deploy --all --require-approval never --outputs-file cdk-outputs.json
+
+      - name: Extract API Endpoint
+        id: api-endpoint
+        working-directory: ./infra
+        run: |
+          API_URL=$(node ../scripts/get-api-endpoint.mjs cdk-outputs.json EvscrapStack)
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+          echo "API URL: $API_URL"
+
+      - name: Smoke Test
+        run: |
+          chmod +x scripts/smoke-test.sh
+          bash scripts/smoke-test.sh ${{ steps.api-endpoint.outputs.api_url }}
+
+      - name: Output deployment info
+        run: |
+          echo "✅ Infrastructure deployment completed"
+          echo "AWS Account: ${{ env.AWS_ACCOUNT_ID }}"
+          echo "AWS Region: ${{ env.AWS_REGION }}"
+          echo "API URL: ${{ steps.api-endpoint.outputs.api_url }}"
