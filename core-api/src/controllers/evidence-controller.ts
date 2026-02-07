@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import prisma from '../prisma';
 
 // Initialize S3 Client
@@ -25,7 +25,7 @@ export const createPresignedUrl = async (req: Request, res: Response) => {
         throw new Error('Server configuration error: EVIDENCE_BUCKET_NAME not set');
     }
 
-    const evidenceId = uuidv4();
+    const evidenceId = randomUUID();
     // Key format: tenants/{tenantId}/{evidenceId}/{filename}
     // Using a random ID directory prevents overwrites and makes listing easier if needed
     const s3Key = `tenants/${tenantId}/${evidenceId}/${filename}`;

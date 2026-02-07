@@ -248,6 +248,9 @@ export class EvscrapStack extends cdk.Stack {
       'yum install -y postgresql15'
     );
 
+    // Bastion에 Secret Manager 읽기 권한 (마이그레이션용)
+    dbSecret.grantRead(bastionHost.role);
+
     // ========================================
     // SQS: Anchor Events Queue
     // ========================================

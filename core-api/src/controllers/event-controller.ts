@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
 import { createHash } from 'crypto';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import prisma from '../prisma';
+
+const sqs = new SQSClient({ region: process.env.AWS_REGION || 'ap-northeast-2' });
+const ANCHOR_QUEUE_URL = process.env.ANCHOR_QUEUE_URL;
 
 export const createEvent = async (req: Request, res: Response) => {
   try {
@@ -68,8 +72,26 @@ export const createEvent = async (req: Request, res: Response) => {
       }
     });
 
-    // TODO: Send to SQS for anchoring (Worker)
-    
+    // Send to SQS for anchoring (Worker)
+    if (ANCHOR_QUEUE_URL) {
+      try {
+        await sqs.send(new SendMessageCommand({
+          QueueUrl: ANCHOR_QUEUE_URL,
+          MessageBody: JSON.stringify({ eventId: event.id }),
+          MessageAttributes: {
+            eventType: { DataType: 'String', StringValue: event_type },
+            targetType: { DataType: 'String', StringValue: targetType },
+          },
+        }));
+        console.log(`[SQS] Sent event ${event.id} to anchor queue`);
+      } catch (sqsError) {
+        // SQS 실패해도 이벤트 자체는 생성 완료 → 로그만 남기고 계속
+        console.error(`[SQS] Failed to send event ${event.id}:`, sqsError);
+      }
+    } else {
+      console.warn('[SQS] ANCHOR_QUEUE_URL not set, skipping SQS enqueue');
+    }
+
     return res.status(201).json(event);
 
   } catch (error: any) {

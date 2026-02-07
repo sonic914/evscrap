@@ -43,11 +43,18 @@ fs.copyFileSync(
   path.join(lambdaDir, 'prisma', 'schema.prisma')
 );
 
-// Use the project root's prisma CLI (devDependency) to generate into lambda dir
+// Generate Prisma Client using project root's prisma CLI,
+// then copy the generated .prisma/client into the lambda bundle
 execSync('npx prisma generate --schema=' + path.join(lambdaDir, 'prisma', 'schema.prisma'), {
   cwd: path.join(__dirname, '..'),
   stdio: 'inherit'
 });
+
+// Copy generated .prisma/client to lambda bundle's node_modules
+const srcPrismaDir = path.join(__dirname, '..', 'node_modules', '.prisma');
+const destPrismaDir = path.join(lambdaDir, 'node_modules', '.prisma');
+console.log('Step 5: Copying generated Prisma Client to lambda bundle...');
+copyRecursiveSync(srcPrismaDir, destPrismaDir);
 
 console.log('\n✅ Lambda bundle created at dist/lambda');
 console.log('====================================\n');
