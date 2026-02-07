@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
+import { toSnakeCaseKeys, errorResponse, ErrorCode } from '../utils/response';
 
 export const submitTenant = async (req: Request, res: Response) => {
   try {
@@ -7,19 +8,13 @@ export const submitTenant = async (req: Request, res: Response) => {
 
     // Basic Validation
     if (!display_name || !phone_number) {
-       return res.status(400).json({
-        error: 'ValidationError',
-        message: 'Missing required fields: display_name, phone_number'
-      });
+      return errorResponse(res, 400, ErrorCode.VALIDATION_ERROR, 'Missing required fields: display_name, phone_number');
     }
 
     // Phone number regex check (basic)
     const phoneRegex = /^\+82[0-9]{9,11}$/;
     if (!phoneRegex.test(phone_number)) {
-      return res.status(400).json({
-        error: 'ValidationError',
-        message: 'Invalid phone number format. Must be E.164 (+82...)'
-      });
+      return errorResponse(res, 400, ErrorCode.VALIDATION_ERROR, 'Invalid phone number format. Must be E.164 (+82...)');
     }
 
     // Create Tenant
@@ -34,13 +29,10 @@ export const submitTenant = async (req: Request, res: Response) => {
       }
     });
 
-    return res.status(201).json(tenant);
+    return res.status(201).json(toSnakeCaseKeys(tenant));
 
   } catch (error: any) {
     console.error('Error submitting tenant:', error);
-    return res.status(500).json({
-      error: 'InternalServer',
-      message: 'Failed to submit tenant'
-    });
+    return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to submit tenant');
   }
 };

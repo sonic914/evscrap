@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { createHash } from 'crypto';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import prisma from '../prisma';
+import { validateEventPayload } from '../utils/validation';
+import { toSnakeCaseKeys, errorResponse, ErrorCode } from '../utils/response';
 
 const sqs = new SQSClient({ region: process.env.AWS_REGION || 'ap-northeast-2' });
 const ANCHOR_QUEUE_URL = process.env.ANCHOR_QUEUE_URL;
@@ -13,13 +15,29 @@ export const createEvent = async (req: Request, res: Response) => {
     const tenantId = req.user?.tenantId;
 
     if (!tenantId) {
-        return res.status(401).json({ error: 'Unauthorized', message: 'User context missing' });
+        return errorResponse(res, 401, ErrorCode.UNAUTHORIZED, 'User context missing');
     }
 
     // Validate Target Type
     const validTargetTypes = ['CASE', 'LOT'];
     if (!validTargetTypes.includes(targetType)) {
-         return res.status(400).json({ error: 'ValidationError', message: 'Invalid target type' });
+        return errorResponse(res, 400, ErrorCode.VALIDATION_ERROR, 'Invalid target type. Must be CASE or LOT.');
+    }
+
+    // Validate required fields
+    if (!event_type) {
+        return errorResponse(res, 400, ErrorCode.VALIDATION_ERROR, 'event_type is required');
+    }
+    if (!occurred_at) {
+        return errorResponse(res, 400, ErrorCode.VALIDATION_ERROR, 'occurred_at is required');
+    }
+
+    // P0: Event payload discriminator 검증
+    const validation = validateEventPayload(event_type, payload);
+    if (!validation.valid) {
+        return errorResponse(res, 400, ErrorCode.VALIDATION_ERROR,
+          `Payload validation failed for ${event_type}`,
+          { errors: validation.errors });
     }
 
     // Verify Ownership
@@ -92,11 +110,11 @@ export const createEvent = async (req: Request, res: Response) => {
       console.warn('[SQS] ANCHOR_QUEUE_URL not set, skipping SQS enqueue');
     }
 
-    return res.status(201).json(event);
+    return res.status(201).json(toSnakeCaseKeys(event));
 
   } catch (error: any) {
     console.error('Error creating event:', error);
-    return res.status(500).json({ error: 'InternalServer', message: 'Failed to create event' });
+    return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to create event');
   }
 };
 
@@ -131,11 +149,11 @@ export const getTimeline = async (req: Request, res: Response) => {
       }
     });
 
-    return res.json({ events });
+    return res.json({ events: events.map(toSnakeCaseKeys) });
 
   } catch (error: any) {
     console.error('Error getting timeline:', error);
-    return res.status(500).json({ error: 'InternalServer' });
+    return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to get timeline');
   }
 };
 
@@ -162,9 +180,9 @@ export const getAnchorStatus = async (req: Request, res: Response) => {
          return res.status(404).json({ error: 'NotFound', message: 'Anchor not found for this event' });
      }
 
-     return res.json(anchor);
+     return res.json(toSnakeCaseKeys(anchor));
   } catch (error: any) {
     console.error('Error getting anchor:', error);
-    return res.status(500).json({ error: 'InternalServer' });
+    return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to get anchor status');
   }
 };

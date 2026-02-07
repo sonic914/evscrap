@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
+import { toSnakeCaseKeys, errorResponse, ErrorCode } from '../utils/response';
 
 export const createSettlement = async (req: Request, res: Response) => {
   try {
@@ -8,30 +9,28 @@ export const createSettlement = async (req: Request, res: Response) => {
     const tenantId = req.user?.tenantId;
 
     if (!tenantId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return errorResponse(res, 401, ErrorCode.UNAUTHORIZED, 'User context missing');
     }
 
-    // Validate target type
     const validTargetTypes = ['CASE', 'LOT'];
     if (!validTargetTypes.includes(targetType)) {
-      return res.status(400).json({ error: 'ValidationError', message: 'Invalid target type. Must be CASE or LOT.' });
+      return errorResponse(res, 400, ErrorCode.VALIDATION_ERROR, 'Invalid target type. Must be CASE or LOT.');
     }
 
-    // Validate amount_total
     if (amount_total == null || typeof amount_total !== 'number' || amount_total <= 0) {
-      return res.status(400).json({ error: 'ValidationError', message: 'amount_total is required and must be a positive number.' });
+      return errorResponse(res, 400, ErrorCode.VALIDATION_ERROR, 'amount_total is required and must be a positive number.');
     }
 
     // Verify ownership
     if (targetType === 'CASE') {
       const kase = await prisma.case.findUnique({ where: { id: targetId } });
       if (!kase || kase.tenantId !== tenantId) {
-        return res.status(404).json({ error: 'NotFound', message: 'Case not found or access denied' });
+        return errorResponse(res, 404, ErrorCode.RESOURCE_NOT_FOUND, 'Case not found or access denied');
       }
     } else {
       const lot = await prisma.lot.findUnique({ where: { id: targetId } });
       if (!lot || lot.tenantId !== tenantId) {
-        return res.status(404).json({ error: 'NotFound', message: 'Lot not found or access denied' });
+        return errorResponse(res, 404, ErrorCode.RESOURCE_NOT_FOUND, 'Lot not found or access denied');
       }
     }
 
@@ -40,14 +39,11 @@ export const createSettlement = async (req: Request, res: Response) => {
       where: { targetType, targetId },
     });
     if (existing) {
-      return res.status(409).json({
-        error: 'DuplicateSettlement',
-        message: 'Settlement already exists for this target.',
-        settlement_id: existing.id,
-      });
+      return errorResponse(res, 409, ErrorCode.DUPLICATE_RESOURCE,
+        'Settlement already exists for this target.',
+        { settlement_id: existing.id });
     }
 
-    // Create settlement
     const settlement = await prisma.settlement.create({
       data: {
         targetType,
@@ -59,46 +55,46 @@ export const createSettlement = async (req: Request, res: Response) => {
       },
     });
 
-    return res.status(201).json(settlement);
+    return res.status(201).json(toSnakeCaseKeys(settlement));
   } catch (error: any) {
     console.error('Error creating settlement:', error);
-    return res.status(500).json({ error: 'InternalServer', message: 'Failed to create settlement' });
+    return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to create settlement');
   }
 };
 
 export const getSettlement = async (req: Request, res: Response) => {
   try {
-     const { targetType, targetId } = req.params;
-     const tenantId = req.user?.tenantId;
+    const { targetType, targetId } = req.params;
+    const tenantId = req.user?.tenantId;
 
-     if (!tenantId) {
-        return res.status(401).json({ error: 'Unauthorized' });
+    if (!tenantId) {
+      return errorResponse(res, 401, ErrorCode.UNAUTHORIZED, 'User context missing');
     }
 
     // Verify ownership
-     if (targetType === 'CASE') {
-        const kase = await prisma.case.findUnique({ where: { id: targetId } });
-        if (!kase || kase.tenantId !== tenantId) return res.status(404).json({ error: 'NotFound' });
+    if (targetType === 'CASE') {
+      const kase = await prisma.case.findUnique({ where: { id: targetId } });
+      if (!kase || kase.tenantId !== tenantId) {
+        return errorResponse(res, 404, ErrorCode.RESOURCE_NOT_FOUND, 'Case not found or access denied');
+      }
     } else {
-         const lot = await prisma.lot.findUnique({ where: { id: targetId } });
-        if (!lot || lot.tenantId !== tenantId) return res.status(404).json({ error: 'NotFound' });
+      const lot = await prisma.lot.findUnique({ where: { id: targetId } });
+      if (!lot || lot.tenantId !== tenantId) {
+        return errorResponse(res, 404, ErrorCode.RESOURCE_NOT_FOUND, 'Lot not found or access denied');
+      }
     }
 
     const settlement = await prisma.settlement.findFirst({
-        where: {
-            targetType,
-            targetId
-        }
+      where: { targetType, targetId },
     });
 
     if (!settlement) {
-         return res.status(404).json({ error: 'NotFound', message: 'Settlement not found' });
+      return errorResponse(res, 404, ErrorCode.RESOURCE_NOT_FOUND, 'Settlement not found');
     }
 
-    return res.json(settlement);
-
+    return res.json(toSnakeCaseKeys(settlement));
   } catch (error: any) {
     console.error('Error getting settlement:', error);
-    return res.status(500).json({ error: 'InternalServer' });
+    return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to get settlement');
   }
 };
