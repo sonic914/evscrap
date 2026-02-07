@@ -1,13 +1,10 @@
-name: Core API Deployment
+name: Core API Quick Deploy (Lambda Only)
+
+# Lambda 코드만 빠르게 업데이트 (인프라 변경 없이)
+# 인프라 변경이 있으면 infra-deploy.yml 사용
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'core-api/**'
-      - '.github/workflows/core-api-deploy.yml'
-  workflow_dispatch:
+  workflow_dispatch:  # 수동 실행만 (자동 트리거는 infra-deploy로 통합됨)
 
 permissions:
   id-token: write
@@ -15,31 +12,31 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-2
-  AWS_ACCOUNT_ID: '090733632671'
-  LAMBDA_FUNCTION_NAME: evscrap-health
+  API_LAMBDA: evscrap-api
+  WORKER_LAMBDA: evscrap-anchor-worker
 
 jobs:
   deploy:
-    name: Deploy Core API
+    name: Quick Deploy Lambda Code
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
-          cache-dependency-path: core-api/package.json
+          cache-dependency-path: core-api/package-lock.json
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::090733632671:role/GitHubActions-evscrap-deploy-dev
           aws-region: ap-northeast-2
-          role-session-name: GitHubActions-core-api-deploy
+          role-session-name: GitHubActions-lambda-deploy
 
       - name: Install dependencies
         working-directory: ./core-api
@@ -47,51 +44,39 @@ jobs:
 
       - name: Build TypeScript
         working-directory: ./core-api
-        run: npm run build
+        run: npx tsc
 
-      - name: Package Lambda function
+      - name: Bundle Lambda
         working-directory: ./core-api
-        run: |
-          cd dist
-          zip -r ../lambda.zip .
-          cd ..
-          zip -g lambda.zip package.json
-          cd node_modules
-          zip -r ../lambda.zip .
-          cd ..
+        run: node scripts/bundle-lambda.js
 
-      - name: Update Lambda function
+      - name: Package & Deploy API Lambda
+        working-directory: ./core-api/dist/lambda
+        run: |
+          zip -r /tmp/lambda.zip .
+          aws lambda update-function-code \
+            --function-name ${{ env.API_LAMBDA }} \
+            --zip-file fileb:///tmp/lambda.zip
+          aws lambda wait function-updated \
+            --function-name ${{ env.API_LAMBDA }}
+          echo "✅ API Lambda updated"
+
+      - name: Deploy Worker Lambda
+        working-directory: ./core-api/dist/lambda
         run: |
           aws lambda update-function-code \
-            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-            --zip-file fileb://core-api/lambda.zip \
-            --region ${{ env.AWS_REGION }}
-
-      - name: Wait for Lambda update
-        run: |
+            --function-name ${{ env.WORKER_LAMBDA }} \
+            --zip-file fileb:///tmp/lambda.zip
           aws lambda wait function-updated \
-            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-            --region ${{ env.AWS_REGION }}
+            --function-name ${{ env.WORKER_LAMBDA }}
+          echo "✅ Worker Lambda updated"
 
-      - name: Extract API Endpoint
-        id: api-endpoint
+      - name: Smoke Test
         run: |
           API_URL=$(aws cloudformation describe-stacks \
             --stack-name EvscrapStack \
             --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
-            --output text \
-            --region ${{ env.AWS_REGION }})
-          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
-          echo "API URL: $API_URL"
-
-      - name: Smoke Test
-        run: |
-          chmod +x scripts/smoke-test.sh
-          bash scripts/smoke-test.sh ${{ steps.api-endpoint.outputs.api_url }}
-
-      - name: Output deployment info
-        run: |
-          echo "✅ Core API deployment completed"
-          echo "Lambda Function: ${{ env.LAMBDA_FUNCTION_NAME }}"
-          echo "AWS Region: ${{ env.AWS_REGION }}"
-          echo "API URL: ${{ steps.api-endpoint.outputs.api_url }}"
+            --output text)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}health")
+          echo "Health: HTTP $STATUS"
+          [ "$STATUS" = "200" ] && echo "✅ Passed" || (echo "❌ Failed" && exit 1)

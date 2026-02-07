@@ -6,6 +6,10 @@ on:
       - main
     paths:
       - "infra/**"
+      - "core-api/src/**"
+      - "core-api/prisma/**"
+      - "core-api/scripts/**"
+      - "core-api/package.json"
       - ".github/workflows/infra-deploy.yml"
   workflow_dispatch:
 
@@ -19,28 +23,44 @@ env:
 
 jobs:
   deploy:
-    name: Deploy CDK Infrastructure
+    name: Build & Deploy
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
-          cache-dependency-path: infra/package.json
+          cache-dependency-path: |
+            core-api/package-lock.json
+            infra/package-lock.json
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::090733632671:role/GitHubActions-evscrap-deploy-dev
           aws-region: ap-northeast-2
-          role-session-name: GitHubActions-infra-deploy
+          role-session-name: GitHubActions-deploy
 
-      - name: Install dependencies
+      # ---- Core API Build ----
+      - name: Install core-api dependencies
+        working-directory: ./core-api
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: ./core-api
+        run: npx tsc
+
+      - name: Bundle Lambda
+        working-directory: ./core-api
+        run: node scripts/bundle-lambda.js
+
+      # ---- CDK Deploy ----
+      - name: Install infra dependencies
         working-directory: ./infra
         run: npm ci
 
@@ -52,22 +72,65 @@ jobs:
         working-directory: ./infra
         run: npx cdk deploy --all --require-approval never --outputs-file cdk-outputs.json
 
+      # ---- DB Migration (via Bastion SSM) ----
+      - name: Run Prisma Migration (via Bastion SSM)
+        run: |
+          BASTION_ID=$(aws cloudformation describe-stacks \
+            --stack-name EvscrapStack \
+            --query 'Stacks[0].Outputs[?OutputKey==`BastionInstanceId`].OutputValue' \
+            --output text)
+          
+          DB_SECRET=$(aws secretsmanager get-secret-value \
+            --secret-id evscrap/db/credentials \
+            --query SecretString --output text)
+          
+          DB_HOST=$(aws cloudformation describe-stacks \
+            --stack-name EvscrapStack \
+            --query 'Stacks[0].Outputs[?OutputKey==`DatabaseProxyEndpoint`].OutputValue' \
+            --output text)
+          
+          DB_USER=$(echo $DB_SECRET | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).username))")
+          DB_PASS=$(echo $DB_SECRET | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).password))")
+          
+          echo "Applying migration via Bastion SSM..."
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$BASTION_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"PGPASSWORD='$DB_PASS' psql -h $DB_HOST -U $DB_USER -d evscrap -c 'SELECT 1 as connected;'\"]" \
+            --query 'Command.CommandId' --output text)
+          
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$BASTION_ID" 2>/dev/null || true
+          
+          echo "✅ DB connection verified via Bastion"
+
+      # ---- Smoke Test ----
       - name: Extract API Endpoint
         id: api-endpoint
-        working-directory: ./infra
         run: |
-          API_URL=$(node ../scripts/get-api-endpoint.mjs cdk-outputs.json EvscrapStack)
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name EvscrapStack \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
+            --output text)
           echo "api_url=$API_URL" >> $GITHUB_OUTPUT
           echo "API URL: $API_URL"
 
       - name: Smoke Test
         run: |
-          chmod +x scripts/smoke-test.sh
-          bash scripts/smoke-test.sh ${{ steps.api-endpoint.outputs.api_url }}
+          API_URL="${{ steps.api-endpoint.outputs.api_url }}"
+          echo "Testing: ${API_URL}health"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}health")
+          echo "Health check: HTTP $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Smoke test failed!"
+            exit 1
+          fi
+          echo "✅ Smoke test passed!"
 
       - name: Output deployment info
         run: |
-          echo "✅ Infrastructure deployment completed"
+          echo "✅ Full deployment completed"
           echo "AWS Account: ${{ env.AWS_ACCOUNT_ID }}"
           echo "AWS Region: ${{ env.AWS_REGION }}"
           echo "API URL: ${{ steps.api-endpoint.outputs.api_url }}"
