@@ -10,6 +10,7 @@ on:
       - "core-api/prisma/**"
       - "core-api/scripts/**"
       - "core-api/package.json"
+      - "scripts/**"
       - ".github/workflows/infra-deploy.yml"
   workflow_dispatch:
 
@@ -105,32 +106,42 @@ jobs:
           
           echo "✅ DB connection verified via Bastion"
 
-      # ---- Smoke Test ----
-      - name: Extract API Endpoint
-        id: api-endpoint
+      # ---- Resolve Outputs + Smoke Tests ----
+      - name: Resolve CDK Outputs
+        id: outputs
         run: |
-          API_URL=$(aws cloudformation describe-stacks \
-            --stack-name EvscrapStack \
-            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
-            --output text)
-          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
-          echo "API URL: $API_URL"
+          node scripts/resolve-outputs.mjs infra/cdk-outputs.json > /tmp/evscrap.outputs.env
+          echo "--- Resolved Outputs ---"
+          cat /tmp/evscrap.outputs.env
+          echo "------------------------"
+          while IFS= read -r line; do
+            echo "$line" >> $GITHUB_ENV
+          done < /tmp/evscrap.outputs.env
 
-      - name: Smoke Test
+      # ---- Smoke Test: /health ----
+      - name: Smoke Test (health)
         run: |
-          API_URL="${{ steps.api-endpoint.outputs.api_url }}"
-          echo "Testing: ${API_URL}health"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}health")
+          echo "Testing: ${API_BASE}health"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${API_BASE}health")
           echo "Health check: HTTP $STATUS"
           if [ "$STATUS" != "200" ]; then
-            echo "❌ Smoke test failed!"
+            echo "❌ Health smoke test failed!"
             exit 1
           fi
-          echo "✅ Smoke test passed!"
+          echo "✅ Health smoke test passed!"
+
+      # ---- DB Smoke Test (Cognito 인증 + DB Read/Write) ----
+      - name: DB Smoke Test
+        env:
+          TEST_USER_USERNAME: ${{ secrets.TEST_USER_USERNAME }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+          TEST_ADMIN_USERNAME: ${{ secrets.TEST_ADMIN_USERNAME }}
+          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+        run: node scripts/db-smoke.mjs
 
       - name: Output deployment info
         run: |
-          echo "✅ Full deployment completed"
+          echo "✅ Full deployment completed (with DB smoke)"
           echo "AWS Account: ${{ env.AWS_ACCOUNT_ID }}"
           echo "AWS Region: ${{ env.AWS_REGION }}"
-          echo "API URL: ${{ steps.api-endpoint.outputs.api_url }}"
+          echo "API URL: ${{ env.API_BASE }}"

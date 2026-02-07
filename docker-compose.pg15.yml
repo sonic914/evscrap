@@ -1,0 +1,23 @@
+# evscrap 로컬 개발용 Postgres 15 (RDS 버전 정렬)
+# 기존 OS Postgres 16은 건드리지 않음. 포트 5433 사용.
+# 사용법: docker compose -f docker-compose.pg15.yml up -d
+# 롤백:   docker compose -f docker-compose.pg15.yml down && rm -rf _local/pg15_data
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: evscrap-pg15
+    environment:
+      POSTGRES_USER: evscrap
+      POSTGRES_PASSWORD: evscrap
+      POSTGRES_DB: evscrap_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./_local/pg15_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evscrap -d evscrap_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped

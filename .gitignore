@@ -44,3 +44,6 @@ logs/
 # Build artifacts
 *.tgz
 *.zip
+
+# Local dev data
+_local/
