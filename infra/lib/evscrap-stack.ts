@@ -305,47 +305,39 @@ export class EvscrapStack extends cdk.Stack {
     anchorQueue.grantConsumeMessages(anchorWorker);
 
     // ========================================
-    // Lambda: Health Check Handler
+    // Lambda: API Handler (Express via serverless-express)
     // ========================================
-    const healthHandler = new lambda.Function(this, 'HealthHandler', {
-      functionName: 'evscrap-health',
+    const apiHandler = new lambda.Function(this, 'ApiHandler', {
+      functionName: 'evscrap-api',
       runtime: lambda.Runtime.NODEJS_22_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromInline(`
-exports.handler = async (event) => {
-  const path = event.path || '/';
-  const now = new Date().toISOString();
-  
-  return {
-    statusCode: 200,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-    },
-    body: JSON.stringify({
-      status: 'healthy',
-      timestamp: now,
-      path: path,
-      version: '0.1.0-phase0a',
-    }),
-  };
-};
-      `),
-      timeout: cdk.Duration.seconds(10),
-      memorySize: 256,
+      handler: 'handlers/api.handler',
+      code: lambda.Code.fromAsset('../core-api/dist/lambda'),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+      },
+      securityGroups: [lambdaSecurityGroup],
       logRetention: logs.RetentionDays.ONE_WEEK,
       environment: {
-        BUCKET_NAME: evidenceBucket.bucketName,
-        USER_POOL_ID: userPool.userPoolId,
-        ADMIN_POOL_ID: adminPool.userPoolId,
+        DATABASE_URL: `postgresql://evscrap_admin@${dbProxy.endpoint}:5432/evscrap?schema=public`,
         DB_PROXY_ENDPOINT: dbProxy.endpoint,
         DB_SECRET_ARN: dbSecret.secretArn,
+        BUCKET_NAME: evidenceBucket.bucketName,
+        USER_POOL_ID: userPool.userPoolId,
+        USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
+        ADMIN_POOL_ID: adminPool.userPoolId,
+        ADMIN_POOL_CLIENT_ID: adminPoolClient.userPoolClientId,
         ANCHOR_QUEUE_URL: anchorQueue.queueUrl,
+        NODE_ENV: 'production',
       },
     });
 
-    // S3 버킷 읽기 권한 (향후 presigned URL 생성용)
-    evidenceBucket.grantRead(healthHandler);
+    // API Lambda 권한
+    dbSecret.grantRead(apiHandler);
+    evidenceBucket.grantReadWrite(apiHandler);
+    anchorQueue.grantSendMessages(apiHandler);
 
     // ========================================
     // API Gateway: REST API
@@ -365,23 +357,17 @@ exports.handler = async (event) => {
       },
     });
 
-    const healthIntegration = new apigateway.LambdaIntegration(healthHandler);
+    const apiIntegration = new apigateway.LambdaIntegration(apiHandler);
 
-    // GET /health
+    // GET /health (직접 매핑)
     const healthResource = api.root.addResource('health');
-    healthResource.addMethod('GET', healthIntegration);
+    healthResource.addMethod('GET', apiIntegration);
 
-    // GET /user/v1/health
-    const userResource = api.root.addResource('user');
-    const userV1Resource = userResource.addResource('v1');
-    const userHealthResource = userV1Resource.addResource('health');
-    userHealthResource.addMethod('GET', healthIntegration);
-
-    // GET /admin/v1/health
-    const adminResource = api.root.addResource('admin');
-    const adminV1Resource = adminResource.addResource('v1');
-    const adminHealthResource = adminV1Resource.addResource('health');
-    adminHealthResource.addMethod('GET', healthIntegration);
+    // /{proxy+} → Express 라우팅으로 전체 위임
+    const proxyResource = api.root.addProxy({
+      defaultIntegration: apiIntegration,
+      anyMethod: true,
+    });
 
     // ========================================
     // CloudFormation Outputs
