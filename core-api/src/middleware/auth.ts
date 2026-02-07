@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { CognitoJwtVerifier } from 'aws-jwt-verify';
 
 // Extend Express Request to include user
 declare global {
@@ -7,43 +8,74 @@ declare global {
       user?: {
         tenantId: string;
         sub: string;
-      }
+      };
     }
   }
 }
 
-export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  // TODO: Implement Real Cognito JWT verification
-  
-  // For MVP Dev: Check for Test Headers or Mock
+// Cognito JWT Verifier (lazy init)
+let verifier: ReturnType<typeof CognitoJwtVerifier.create> | null = null;
+
+function getVerifier() {
+  if (!verifier && process.env.USER_POOL_ID && process.env.USER_POOL_CLIENT_ID) {
+    verifier = CognitoJwtVerifier.create({
+      userPoolId: process.env.USER_POOL_ID,
+      tokenUse: 'id',
+      clientId: process.env.USER_POOL_CLIENT_ID,
+    });
+  }
+  return verifier;
+}
+
+export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
+  // ─── Test Backdoor (시크릿 기반) ───
+  const testSecret = req.headers['x-test-secret'] as string;
   const testTenantId = req.headers['x-test-tenant-id'] as string;
-  
-  if (process.env.NODE_ENV === 'development' && testTenantId) {
-      req.user = {
-          tenantId: testTenantId,
-          sub: 'test-user-sub'
-      };
-      return next();
+  const TEST_SECRET = process.env.TEST_AUTH_SECRET || 'evscrap-test-secret-2026';
+
+  if (testSecret === TEST_SECRET && testTenantId) {
+    req.user = {
+      tenantId: testTenantId,
+      sub: 'test-user-sub',
+    };
+    return next();
   }
 
-  // If no mock header, normally we would check Authorization Bearer
-  // For now, let's just log and fail if we want to be strict, 
-  // or allow permissive for initial scaffolding.
-  // The spec says 401 is possible.
-  
+  // ─── JWT 검증 ───
   const authHeader = req.headers.authorization;
-  if (!authHeader) {
-     return res.status(401).json({ error: 'Unauthorized', message: 'Missing Authorization header' });
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized', message: 'Missing or invalid Authorization header' });
   }
 
-  // Valid Token Mock (Allow anything starting with "Bearer ")
-  if (authHeader.startsWith('Bearer ')) {
+  const token = authHeader.slice(7);
+
+  // Cognito 검증기 사용 가능?
+  const jwtVerifier = getVerifier();
+  if (jwtVerifier) {
+    try {
+      const payload = await jwtVerifier.verify(token);
+      // Cognito JWT에서 sub과 custom:tenant_id 추출
+      // tenant_id 매핑: custom attribute 또는 sub 자체를 사용
+      const tenantId = (payload as any)['custom:tenant_id'] || payload.sub;
       req.user = {
-          tenantId: 'mock-tenant-id-from-token',
-          sub: 'mock-sub'
+        tenantId,
+        sub: payload.sub,
       };
       return next();
+    } catch (err) {
+      console.warn('[Auth] JWT verification failed:', (err as Error).message);
+      return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired token' });
+    }
   }
 
-  return res.status(401).json({ error: 'Unauthorized', message: 'Invalid token' });
+  // ─── Fallback: Cognito 미설정 시 (로컬 개발) ───
+  if (process.env.NODE_ENV !== 'production') {
+    req.user = {
+      tenantId: 'local-dev-tenant',
+      sub: 'local-dev-sub',
+    };
+    return next();
+  }
+
+  return res.status(401).json({ error: 'Unauthorized', message: 'Authentication not configured' });
 };

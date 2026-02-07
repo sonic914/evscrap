@@ -31,6 +31,7 @@ router.get('/:targetType/:targetId/timeline', eventController.getTimeline);
 router.get('/events/:eventId/anchor', eventController.getAnchorStatus);
 
 // Settlement
+router.post('/:targetType/:targetId/settlement', settlementController.createSettlement);
 router.get('/:targetType/:targetId/settlement', settlementController.getSettlement);
 
 // Current User (Placeholder)

@@ -333,6 +333,8 @@ export class EvscrapStack extends cdk.Stack {
         ADMIN_POOL_ID: adminPool.userPoolId,
         ADMIN_POOL_CLIENT_ID: adminPoolClient.userPoolClientId,
         ANCHOR_QUEUE_URL: anchorQueue.queueUrl,
+        TEST_AUTH_SECRET: 'evscrap-test-secret-2026',
+        ADMIN_AUTH_SECRET: 'evscrap-admin-secret-2026',
         NODE_ENV: 'production',
       },
     });
