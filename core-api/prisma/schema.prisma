@@ -1,0 +1,186 @@
+// Prisma schema for evscrap Core API
+// PostgreSQL database with 9 tables
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+generator client {
+    provider      = "prisma-client-js"
+    binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+// ==================== Tenants ====================
+
+model Tenant {
+    id             String    @id @default(uuid()) @map("tenant_id")
+    status         String    @default("PENDING") // PENDING, APPROVED, REJECTED, SUSPENDED
+    displayName    String    @map("display_name")
+    phoneNumber    String    @map("phone_number") // E.164 format (required)
+    businessNumber String?   @map("business_number")
+    address        String?
+    createdAt      DateTime  @default(now()) @map("created_at")
+    updatedAt      DateTime  @updatedAt @map("updated_at")
+    approvedAt     DateTime? @map("approved_at")
+    approvedBy     String?   @map("approved_by")
+
+    // Relations
+    cases    Case[]
+    lots     Lot[]
+    evidence Evidence[]
+    events   Event[]
+
+    @@map("tenants")
+}
+
+// ==================== Cases ====================
+
+model Case {
+    id        String   @id @default(uuid()) @map("case_id")
+    vin       String
+    make      String?
+    model     String?
+    year      Int?
+    tenantId  String   @map("tenant_id")
+    createdAt DateTime @default(now()) @map("created_at")
+
+    // Relations
+    tenant Tenant  @relation(fields: [tenantId], references: [id])
+    lots   Lot[]
+    events Event[]
+
+    @@map("cases")
+}
+
+// ==================== Lots ====================
+
+model Lot {
+    id           String   @id @default(uuid()) @map("lot_id")
+    parentCaseId String?  @map("parent_case_id") // nullable - standalone lots allowed
+    partType     String   @map("part_type") // MOTOR, BATTERY_PACK, INVERTER, OTHER
+    quantity     Int      @default(1)
+    weightKg     Float?   @map("weight_kg")
+    tenantId     String   @map("tenant_id")
+    createdAt    DateTime @default(now()) @map("created_at")
+
+    // Relations
+    tenant     Tenant  @relation(fields: [tenantId], references: [id])
+    parentCase Case?   @relation(fields: [parentCaseId], references: [id])
+    events     Event[]
+
+    @@map("lots")
+}
+
+// ==================== Evidence ====================
+
+model Evidence {
+    id         String    @id @default(uuid()) @map("evidence_id")
+    s3Bucket   String    @map("s3_bucket")
+    s3Key      String    @map("s3_key")
+    sha256     String // SHA256 hash for integrity
+    mimeType   String    @map("mime_type")
+    sizeBytes  Int       @map("size_bytes")
+    capturedAt DateTime? @map("captured_at")
+    uploadedAt DateTime  @default(now()) @map("uploaded_at")
+    tenantId   String    @map("tenant_id")
+
+    // Relations
+    tenant Tenant @relation(fields: [tenantId], references: [id])
+
+    @@map("evidence")
+}
+
+// ==================== Events (Immutable Ledger) ====================
+
+model Event {
+    id            String   @id @default(uuid()) @map("event_id")
+    targetType    String   @map("target_type") // CASE, LOT
+    targetId      String   @map("target_id")
+    eventType     String   @map("event_type")
+    occurredAt    DateTime @map("occurred_at")
+    policyRefs    Json?    @map("policy_refs") // Array of policy references
+    payload       Json // Discriminated union based on event_type
+    canonicalHash String   @map("canonical_hash") // Hash for event integrity
+    anchorStatus  String   @default("NONE") @map("anchor_status") // NONE, PENDING, VERIFIED, FAILED
+    anchorTxid    String?  @map("anchor_txid")
+    prevEventId   String?  @map("prev_event_id") // Chain structure
+    tenantId      String   @map("tenant_id")
+    createdAt     DateTime @default(now()) @map("created_at")
+
+    // Relations
+    tenant Tenant            @relation(fields: [tenantId], references: [id])
+    anchor BlockchainAnchor?
+    case   Case?             @relation(fields: [caseId], references: [id])
+    caseId String?
+    lot    Lot?              @relation(fields: [lotId], references: [id])
+    lotId  String?
+
+    @@index([targetType, targetId])
+    @@index([anchorStatus])
+    @@index([eventType])
+    @@map("events")
+}
+
+// ==================== Blockchain Anchors ====================
+
+model BlockchainAnchor {
+    id         String    @id @default(uuid())
+    eventId    String    @unique @map("event_id")
+    txid       String // Transaction ID on blockchain
+    status     String // PENDING, VERIFIED, FAILED
+    anchoredAt DateTime  @default(now()) @map("anchored_at")
+    verifiedAt DateTime? @map("verified_at")
+    errorMsg   String?   @map("error_msg")
+
+    // Relations
+    event Event @relation(fields: [eventId], references: [id])
+
+    @@map("blockchain_anchors")
+}
+
+// ==================== Policies ====================
+
+model Policy {
+    id         String   @id @default(uuid()) @map("policy_id")
+    policyType String   @map("policy_type") // M0, DELTA, SCORE, WORKFLOW
+    version    String
+    isActive   Boolean  @default(false) @map("is_active")
+    policyBody Json     @map("policy_body") // Policy definition
+    createdAt  DateTime @default(now()) @map("created_at")
+
+    @@unique([policyType, version])
+    @@map("policies")
+}
+
+// ==================== Settlements ====================
+
+model Settlement {
+    id          String   @id @default(uuid()) @map("settlement_id")
+    targetType  String   @map("target_type") // CASE, LOT
+    targetId    String   @map("target_id")
+    status      String   @default("DRAFT") // DRAFT, READY_FOR_APPROVAL, APPROVED, COMMITTED
+    amountMin   Float?   @map("amount_min")
+    amountBonus Float?   @map("amount_bonus")
+    amountTotal Float    @map("amount_total")
+    receiptHash String?  @map("receipt_hash")
+    createdAt   DateTime @default(now()) @map("created_at")
+    updatedAt   DateTime @updatedAt @map("updated_at")
+
+    @@index([status])
+    @@map("settlements")
+}
+
+// ==================== Idempotency Records ====================
+
+model IdempotencyRecord {
+    id           String   @id @default(uuid())
+    key          String   @unique // Idempotency key from header
+    endpoint     String // API endpoint path
+    tenantId     String?  @map("tenant_id")
+    requestHash  String   @map("request_hash") // Hash of request body
+    responseBody Json     @map("response_body") // Cached response
+    createdAt    DateTime @default(now()) @map("created_at")
+
+    @@map("idempotency_records")
+}

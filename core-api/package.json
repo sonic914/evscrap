@@ -6,30 +6,45 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
+    "build:lambda": "npm run build && npm run bundle:lambda",
+    "bundle:lambda": "node scripts/bundle-lambda.js",
     "watch": "tsc -w",
     "dev": "ts-node src/local-server.ts",
     "start": "node dist/local-server.js",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",
     "format:check": "prettier --check \"**/*.ts\"",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "db:generate": "prisma generate",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:reset": "prisma migrate reset",
+    "db:studio": "prisma studio",
+    "db:push": "prisma db push"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.0",
+    "@types/cors": "^2.8.19",
     "@types/express": "^4.17.0",
     "@types/node": "^20.0.0",
+    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.50.0",
     "prettier": "^3.0.0",
+    "prisma": "^5.22.0",
     "ts-node": "^10.9.0",
     "typescript": "^5.3.0"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.500.0",
+    "@aws-sdk/client-secrets-manager": "^3.984.0",
     "@aws-sdk/s3-request-presigner": "^3.500.0",
+    "@prisma/client": "^5.22.0",
     "aws-lambda": "^1.0.7",
+    "cors": "^2.8.6",
     "dotenv": "^16.3.0",
-    "express": "^4.18.0"
+    "express": "^4.18.0",
+    "uuid": "^13.0.0"
   }
 }

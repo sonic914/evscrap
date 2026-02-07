@@ -1,0 +1,20 @@
+# SSM 포트 포워딩 명령어
+
+**아래 명령어를 새 PowerShell 창에서 실행하세요:**
+
+```powershell
+aws ssm start-session `
+  --target i-07c9c0eba2426d545 `
+  --region ap-northeast-2 `
+  --document-name AWS-StartPortForwardingSessionToRemoteHost `
+  --parameters '{"portNumber":["5432"],"localPortNumber":["5432"],"host":["evscrap-db.czyc40wu4fe3.ap-northeast-2.rds.amazonaws.com"]}'
+```
+
+**실행 후 나타나야 할 메시지:**
+```
+Starting session with SessionId: ...
+Port 5432 opened for sessionId ...
+Waiting for connections...
+```
+
+이 창은 **열어둔 채로** 원래 스크립트 창으로 돌아가서 **Enter**를 누르세요.
