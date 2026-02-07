@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { createHash } from 'crypto';
 import prisma from '../prisma';
 
 export const createEvent = async (req: Request, res: Response) => {
@@ -40,7 +41,13 @@ export const createEvent = async (req: Request, res: Response) => {
     // For now, let's use a placeholder 'pending-hash' or calculate SHA256 of payload.
     // I'll skip complex hashing for this file edit to keep it simple, or just use stringify.
     
-    const canonicalHash = 'pending-calculation'; 
+    // Canonical hash: SHA-256 of deterministic JSON (targetType + targetId + eventType + payload + occurredAt)
+    const canonicalPayload = JSON.stringify({
+      targetType, targetId, event_type,
+      payload: payload || {},
+      occurredAt: occurred_at || new Date().toISOString()
+    });
+    const canonicalHash = createHash('sha256').update(canonicalPayload).digest('hex');
 
     const event = await prisma.event.create({
       data: {
