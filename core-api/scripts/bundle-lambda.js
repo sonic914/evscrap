@@ -43,8 +43,9 @@ fs.copyFileSync(
   path.join(lambdaDir, 'prisma', 'schema.prisma')
 );
 
-execSync('npx prisma generate', {
-  cwd: lambdaDir,
+// Use the project root's prisma CLI (devDependency) to generate into lambda dir
+execSync('npx prisma generate --schema=' + path.join(lambdaDir, 'prisma', 'schema.prisma'), {
+  cwd: path.join(__dirname, '..'),
   stdio: 'inherit'
 });
 

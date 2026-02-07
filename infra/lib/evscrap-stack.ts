@@ -271,7 +271,7 @@ export class EvscrapStack extends cdk.Stack {
     // ========================================
     const anchorWorker = new lambda.Function(this, 'AnchorWorker', {
       functionName: 'evscrap-anchor-worker',
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'anchor-worker/index.handler',
       code: lambda.Code.fromAsset('../core-api/dist/lambda'),
       timeout: cdk.Duration.seconds(300),
@@ -309,7 +309,7 @@ export class EvscrapStack extends cdk.Stack {
     // ========================================
     const healthHandler = new lambda.Function(this, 'HealthHandler', {
       functionName: 'evscrap-health',
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'index.handler',
       code: lambda.Code.fromInline(`
 exports.handler = async (event) => {
