@@ -107,12 +107,12 @@ jobs:
           echo "✅ DB connection verified"
           
           # 2) idempotency_records v2 마이그레이션 (멱등: DROP IF EXISTS + CREATE)
-          MIGRATION_CMD="PGPASSWORD='$DB_PASS' psql -h $DB_HOST -U $DB_USER -d evscrap -c \"DROP TABLE IF EXISTS idempotency_records; CREATE TABLE IF NOT EXISTS idempotency_records (id TEXT NOT NULL, scope_type TEXT NOT NULL, scope_id TEXT NOT NULL, endpoint TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT, status TEXT NOT NULL DEFAULT 'IN_PROGRESS', response_status INTEGER, response_body JSONB, created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, expires_at TIMESTAMP(3), CONSTRAINT idempotency_records_pkey PRIMARY KEY (id)); CREATE UNIQUE INDEX IF NOT EXISTS idempotency_records_scope_key ON idempotency_records(scope_type, scope_id, endpoint, idempotency_key);\""
+          SQL_B64=$(base64 -w0 < core-api/prisma/migrations/20260210132900_idempotency_v2/migration.sql)
           
           CMD_ID2=$(aws ssm send-command \
             --instance-ids "$BASTION_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[\"$MIGRATION_CMD\"]" \
+            --parameters "commands=[\"echo $SQL_B64 | base64 -d | PGPASSWORD='$DB_PASS' psql -h $DB_HOST -U $DB_USER -d evscrap\"]" \
             --query 'Command.CommandId' --output text)
           aws ssm wait command-executed \
             --command-id "$CMD_ID2" \
