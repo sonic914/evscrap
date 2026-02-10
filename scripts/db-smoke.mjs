@@ -30,15 +30,13 @@ function mask(str) {
 function getIdToken(poolId, clientId, username, password, label) {
   console.log(`\n🔑 [${label}] Cognito 토큰 발급 중... (user: ${mask(username)})`);
   try {
-    const authParams = `USERNAME=${username},PASSWORD=${password}`;
-    const cmd = [
-      'aws', 'cognito-idp', 'initiate-auth',
-      '--client-id', clientId,
-      '--auth-flow', 'USER_PASSWORD_AUTH',
-      '--auth-parameters', authParams,
-      '--region', REGION,
-      '--output', 'json',
-    ].join(' ');
+    // 특수문자 안전 전달: --cli-input-json 사용
+    const inputJson = JSON.stringify({
+      ClientId: clientId,
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      AuthParameters: { USERNAME: username, PASSWORD: password },
+    });
+    const cmd = `aws cognito-idp initiate-auth --cli-input-json '${inputJson.replace(/'/g, "'\\''")}' --region ${REGION} --output json`;
     const result = JSON.parse(
       execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] })
     );
@@ -48,7 +46,6 @@ function getIdToken(poolId, clientId, username, password, label) {
     return idToken;
   } catch (e) {
     console.error(`   ❌ [${label}] 토큰 발급 실패: ${e.message}`);
-    // stderr에 상세 오류가 있을 수 있음
     if (e.stderr) console.error(`   stderr: ${e.stderr.toString().slice(0, 300)}`);
     process.exit(1);
   }
