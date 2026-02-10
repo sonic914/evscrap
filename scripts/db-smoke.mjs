@@ -1,36 +1,35 @@
 #!/usr/bin/env node
 /**
  * db-smoke.mjs
- * 배포 직후 DB Read/Write까지 자동 검증하는 스모크 테스트.
+ * 배포 직후 DB Read/Write + Anchor E2E + 정산 409 게이트 자동 검증
  *
  * 필수 환경변수:
- *   API_BASE                - API Gateway URL (trailing slash 포함)
- *   USER_POOL_ID            - Cognito User Pool ID
- *   USER_POOL_CLIENT_ID     - Cognito User Pool Client ID
- *   ADMIN_POOL_ID           - Cognito Admin Pool ID
- *   ADMIN_POOL_CLIENT_ID    - Cognito Admin Pool Client ID
- *   TEST_USER_USERNAME      - Cognito 폐차장 테스트 계정 이메일
- *   TEST_USER_PASSWORD      - 비밀번호
- *   TEST_ADMIN_USERNAME     - Cognito 관리자 테스트 계정 이메일
- *   TEST_ADMIN_PASSWORD     - 비밀번호
- *   AWS_REGION              - (기본 ap-northeast-2)
+ *   API_BASE, USER_POOL_ID, USER_POOL_CLIENT_ID,
+ *   ADMIN_POOL_ID, ADMIN_POOL_CLIENT_ID,
+ *   TEST_USER_USERNAME, TEST_USER_PASSWORD,
+ *   TEST_ADMIN_USERNAME, TEST_ADMIN_PASSWORD,
+ *   AWS_REGION (기본 ap-northeast-2)
  */
 import { execSync } from 'node:child_process';
 
-const API_BASE = (process.env.API_BASE || '').replace(/\/$/, '');
 const REGION = process.env.AWS_REGION || 'ap-northeast-2';
+// 기존 Lambda 환경변수에 설정된 test-secret (추가 아님, 기존 메커니즘 활용)
+const TEST_SECRET = 'evscrap-test-secret-2026';
 
-// ──────── 유틸: 민감정보 마스킹 ────────
+// ──────── 유틸 ────────
 function mask(str) {
   if (!str || str.length < 8) return '***';
   return str.slice(0, 4) + '****' + str.slice(-4);
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
 }
 
 // ──────── Cognito 토큰 발급 ────────
 function getIdToken(poolId, clientId, username, password, label) {
   console.log(`\n🔑 [${label}] Cognito 토큰 발급 중... (user: ${mask(username)})`);
   try {
-    // 특수문자 안전 전달: --cli-input-json 사용
     const inputJson = JSON.stringify({
       ClientId: clientId,
       AuthFlow: 'USER_PASSWORD_AUTH',
@@ -52,31 +51,34 @@ function getIdToken(poolId, clientId, username, password, label) {
 }
 
 // ──────── HTTP 요청 ────────
-async function apiCall(method, path, { token, body, label }) {
+async function apiCall(method, path, { token, testTenantId, body, label }) {
+  const API_BASE = (process.env.API_BASE || '').replace(/\/$/, '');
   const url = `${API_BASE}${path}`;
   console.log(`\n📡 [${label}] ${method} ${url}`);
 
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  // test-secret 인증 (기존 메커니즘, Cognito sub ≠ tenant_id 보완)
+  if (testTenantId) {
+    headers['x-test-secret'] = TEST_SECRET;
+    headers['x-test-tenant-id'] = testTenantId;
+  }
 
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
 
   const res = await fetch(url, opts);
   let data;
-  try {
-    data = await res.json();
-  } catch {
-    data = await res.text();
-  }
+  try { data = await res.json(); } catch { data = await res.text(); }
 
-  // 민감정보 필터: id, token 등은 마스킹
   const safeData = typeof data === 'object'
-    ? JSON.stringify(data, null, 2).slice(0, 500)
-    : String(data).slice(0, 500);
+    ? JSON.stringify(data, null, 2).slice(0, 600)
+    : String(data).slice(0, 600);
 
   console.log(`   HTTP ${res.status} ${res.statusText}`);
-  console.log(`   Body (preview): ${safeData}`);
+  console.log(`   Body: ${safeData}`);
 
   return { status: res.status, data };
 }
@@ -91,13 +93,11 @@ function assertStatus(result, expected, label) {
 
 // ──────── MAIN ────────
 async function main() {
-  console.log('═══════════════════════════════════════');
-  console.log('  evscrap DB Smoke Test');
-  console.log('═══════════════════════════════════════');
-  console.log(`API_BASE: ${API_BASE}`);
-  console.log(`REGION:   ${REGION}`);
+  console.log('═══════════════════════════════════════════════════');
+  console.log('  evscrap DB Smoke + Anchor E2E + Settlement Gate');
+  console.log('═══════════════════════════════════════════════════');
 
-  // 필수 환경변수 확인
+  // 필수 환경변수 확인 + trim
   const required = [
     'API_BASE', 'USER_POOL_ID', 'USER_POOL_CLIENT_ID',
     'ADMIN_POOL_ID', 'ADMIN_POOL_CLIENT_ID',
@@ -109,74 +109,194 @@ async function main() {
     console.error(`\n❌ 필수 환경변수 누락: ${missing.join(', ')}`);
     process.exit(1);
   }
-
-  // GitHub Secrets의 trailing whitespace/newline 제거
   for (const key of required) {
     if (process.env[key]) process.env[key] = process.env[key].trim();
   }
 
-  // ──── 1) /health ────
-  const health = await apiCall('GET', '/health', { label: 'health' });
+  const API_BASE = process.env.API_BASE.replace(/\/$/, '');
+  console.log(`API_BASE: ${API_BASE}`);
+  console.log(`REGION:   ${REGION}`);
+
+  // ═══════════════════════════════════════
+  // Phase A: 기본 DB Read/Write
+  // ═══════════════════════════════════════
+  console.log('\n\n──── Phase A: 기본 DB Read/Write ────');
+
+  // A1) /health
+  const health = await apiCall('GET', '/health', { label: 'A1-health' });
   assertStatus(health, 200, 'health');
 
-  // ──── 2) Cognito 토큰 발급 ────
+  // A2) Cognito 토큰 발급
   const userToken = getIdToken(
-    process.env.USER_POOL_ID,
-    process.env.USER_POOL_CLIENT_ID,
-    process.env.TEST_USER_USERNAME,
-    process.env.TEST_USER_PASSWORD,
-    'User'
+    process.env.USER_POOL_ID, process.env.USER_POOL_CLIENT_ID,
+    process.env.TEST_USER_USERNAME, process.env.TEST_USER_PASSWORD, 'User'
   );
-
   const adminToken = getIdToken(
-    process.env.ADMIN_POOL_ID,
-    process.env.ADMIN_POOL_CLIENT_ID,
-    process.env.TEST_ADMIN_USERNAME,
-    process.env.TEST_ADMIN_PASSWORD,
-    'Admin'
+    process.env.ADMIN_POOL_ID, process.env.ADMIN_POOL_CLIENT_ID,
+    process.env.TEST_ADMIN_USERNAME, process.env.TEST_ADMIN_PASSWORD, 'Admin'
   );
 
-  // ──── 3) DB WRITE: POST /user/v1/tenants/submit → 201 ────
+  // A3) DB WRITE: tenant 생성
   const ts = Date.now();
-  const tenantResult = await apiCall('POST', '/user/v1/tenants/submit', {
+  const tenantRes = await apiCall('POST', '/user/v1/tenants/submit', {
     token: userToken,
-    body: {
-      display_name: `CI-Smoke-${ts}`,
-      phone_number: '+821000000000',
-    },
-    label: 'tenant-create (DB WRITE)',
+    body: { display_name: `CI-Smoke-${ts}`, phone_number: '+821000000000' },
+    label: 'A3-tenant-create (DB WRITE)',
   });
-  assertStatus(tenantResult, 201, 'tenant-create');
+  assertStatus(tenantRes, 201, 'tenant-create');
+  const tenantId = tenantRes.data.id;
+  console.log(`   tenant_id: ${tenantId}`);
 
-  // ──── 4) DB READ: GET /admin/v1/tenants → 200 ────
-  const tenantsResult = await apiCall('GET', '/admin/v1/tenants', {
+  // A4) DB READ: tenant list
+  const tenantsRes = await apiCall('GET', '/admin/v1/tenants', {
     token: adminToken,
-    label: 'tenant-list (DB READ)',
+    label: 'A4-tenant-list (DB READ)',
   });
-  assertStatus(tenantsResult, 200, 'tenant-list');
+  assertStatus(tenantsRes, 200, 'tenant-list');
 
-  // ──── 5) DB WRITE: POST /user/v1/cases → 201 (optional) ────
-  // 현재 Cognito sub ≠ tenant_id이므로 FK 위반 가능 → warning만 출력
-  const caseResult = await apiCall('POST', '/user/v1/cases', {
-    token: userToken,
-    body: {
-      vin: `SMOKE${ts}`,
-      make: 'CI-Test',
-      model: 'SmokeModel',
-      year: 2026,
-    },
-    label: 'case-create (DB WRITE, optional)',
+  // ═══════════════════════════════════════
+  // Phase B: Anchor E2E
+  // ═══════════════════════════════════════
+  console.log('\n\n──── Phase B: Anchor E2E ────');
+
+  // B1) Case 생성 (test-secret + tenant_id)
+  const caseRes = await apiCall('POST', '/user/v1/cases', {
+    testTenantId: tenantId,
+    body: { vin: `SMOKE${ts}`, make: 'CI-Test', model: 'SmokeModel', year: 2026 },
+    label: 'B1-case-create',
   });
-  if (caseResult.status === 201) {
-    console.log('   ✅ [case-create] PASS (HTTP 201)');
-  } else {
-    console.log(`   ⚠️  [case-create] SKIP (HTTP ${caseResult.status}) - Cognito sub ≠ tenant_id (FK 미매핑)`);
+  assertStatus(caseRes, 201, 'case-create');
+  const caseId = caseRes.data.id || caseRes.data.case_id;
+  console.log(`   case_id: ${caseId}`);
+
+  // B2) Event 생성 → anchor_status=PENDING
+  const eventRes = await apiCall('POST', `/user/v1/CASE/${caseId}/events`, {
+    testTenantId: tenantId,
+    body: {
+      event_type: 'CASE_CREATED',
+      occurred_at: new Date().toISOString(),
+      payload: { note: `CI smoke ${ts}` },
+    },
+    label: 'B2-event-create',
+  });
+  assertStatus(eventRes, 201, 'event-create');
+  const eventId = eventRes.data.id || eventRes.data.event_id;
+  const initialAnchor = eventRes.data.anchor_status;
+  console.log(`   event_id: ${eventId}, anchor_status: ${initialAnchor}`);
+
+  // B3) Anchor VERIFIED 폴링 (Worker가 SQS 처리)
+  console.log('\n⏳ Worker 처리 대기 (anchor VERIFIED 폴링)...');
+  let anchorVerified = false;
+  const maxWait = 120; // 초
+  const pollInterval = 5; // 초
+
+  for (let elapsed = 0; elapsed < maxWait; elapsed += pollInterval) {
+    await sleep(pollInterval * 1000);
+    const timelineRes = await apiCall('GET', `/user/v1/CASE/${caseId}/timeline`, {
+      testTenantId: tenantId,
+      label: `B3-poll (${elapsed + pollInterval}s)`,
+    });
+    if (timelineRes.status === 200 && timelineRes.data.events) {
+      const ev = timelineRes.data.events.find(e => (e.id || e.event_id) === eventId);
+      if (ev && ev.anchor_status === 'VERIFIED') {
+        console.log(`   🎉 anchor_status=VERIFIED! txid=${ev.anchor_txid || 'N/A'}`);
+        anchorVerified = true;
+        break;
+      }
+      console.log(`   ... anchor_status=${ev?.anchor_status || 'unknown'}`);
+    }
   }
 
-  // ──── DONE ────
-  console.log('\n═══════════════════════════════════════');
-  console.log('  ✅ DB Smoke Test ALL PASS');
-  console.log('═══════════════════════════════════════');
+  if (!anchorVerified) {
+    console.error('\n❌ FAIL: Anchor VERIFIED 대기 시간 초과 (120s)');
+    process.exit(1);
+  }
+  console.log('   ✅ [Anchor E2E] PASS: PENDING → VERIFIED');
+
+  // ═══════════════════════════════════════
+  // Phase C: 정산 409 게이트
+  // ═══════════════════════════════════════
+  console.log('\n\n──── Phase C: 정산 409 게이트 ────');
+
+  // C1) Settlement 생성 (DRAFT)
+  const settlementRes = await apiCall('POST', `/user/v1/CASE/${caseId}/settlement`, {
+    testTenantId: tenantId,
+    body: { amount_total: 1000000 },
+    label: 'C1-settlement-create',
+  });
+  assertStatus(settlementRes, 201, 'settlement-create');
+  const settlementId = settlementRes.data.id || settlementRes.data.settlement_id;
+  console.log(`   settlement_id: ${settlementId}`);
+
+  // C2) 새 이벤트 생성 (PENDING 상태) → approve 시 409 기대
+  const event2Res = await apiCall('POST', `/user/v1/CASE/${caseId}/events`, {
+    testTenantId: tenantId,
+    body: {
+      event_type: 'INBOUND_CHECKED',
+      occurred_at: new Date().toISOString(),
+      payload: { inspector_id: 'ci-inspector' },
+    },
+    label: 'C2-event2-create (PENDING)',
+  });
+  assertStatus(event2Res, 201, 'event2-create');
+  const event2Anchor = event2Res.data.anchor_status;
+  console.log(`   event2 anchor_status: ${event2Anchor}`);
+
+  // C3) Approve 시도 → 409 ANCHOR_NOT_VERIFIED 기대
+  const approveFailRes = await apiCall('POST', `/admin/v1/settlements/${settlementId}/approve`, {
+    token: adminToken,
+    label: 'C3-approve (expect 409)',
+  });
+  assertStatus(approveFailRes, 409, 'approve-409-gate');
+  console.log(`   ✅ 정산 409 게이트 작동 확인: ANCHOR_NOT_VERIFIED`);
+
+  // C4) Event2도 VERIFIED 될 때까지 대기
+  console.log('\n⏳ Event2 VERIFIED 대기...');
+  const event2Id = event2Res.data.id || event2Res.data.event_id;
+  let event2Verified = false;
+  for (let elapsed = 0; elapsed < maxWait; elapsed += pollInterval) {
+    await sleep(pollInterval * 1000);
+    const tlRes = await apiCall('GET', `/user/v1/CASE/${caseId}/timeline`, {
+      testTenantId: tenantId,
+      label: `C4-poll (${elapsed + pollInterval}s)`,
+    });
+    if (tlRes.status === 200 && tlRes.data.events) {
+      const ev2 = tlRes.data.events.find(e => (e.id || e.event_id) === event2Id);
+      if (ev2 && ev2.anchor_status === 'VERIFIED') {
+        console.log(`   🎉 event2 anchor_status=VERIFIED!`);
+        event2Verified = true;
+        break;
+      }
+      console.log(`   ... event2 anchor_status=${ev2?.anchor_status || 'unknown'}`);
+    }
+  }
+  if (!event2Verified) {
+    console.error('\n❌ FAIL: Event2 VERIFIED 대기 시간 초과');
+    process.exit(1);
+  }
+
+  // C5) 모든 이벤트 VERIFIED → Approve 성공
+  const approveOkRes = await apiCall('POST', `/admin/v1/settlements/${settlementId}/approve`, {
+    token: adminToken,
+    label: 'C5-approve (expect 200)',
+  });
+  assertStatus(approveOkRes, 200, 'approve-success');
+
+  // C6) Commit 성공
+  const commitRes = await apiCall('POST', `/admin/v1/settlements/${settlementId}/commit`, {
+    token: adminToken,
+    body: { receipt_hash: `smoke-receipt-${ts}` },
+    label: 'C6-commit (expect 200)',
+  });
+  assertStatus(commitRes, 200, 'commit-success');
+
+  // ═══════════════════════════════════════
+  // DONE
+  // ═══════════════════════════════════════
+  console.log('\n═══════════════════════════════════════════════════');
+  console.log('  ✅ ALL PASS: DB Smoke + Anchor E2E + Settlement Gate');
+  console.log('  Phase 1-B 완료 선언 가능');
+  console.log('═══════════════════════════════════════════════════');
 }
 
 main().catch(e => {
