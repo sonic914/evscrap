@@ -272,6 +272,19 @@ export class EvscrapStack extends cdk.Stack {
     // ========================================
     // Lambda: Anchor Worker
     // ========================================
+    // CloudWatch Log Groups (명시적 — logRetention deprecated 와일드카드 제거)
+    const workerLogGroup = new logs.LogGroup(this, 'AnchorWorkerLogGroup', {
+      logGroupName: '/aws/lambda/evscrap-anchor-worker',
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const apiLogGroup = new logs.LogGroup(this, 'ApiHandlerLogGroup', {
+      logGroupName: '/aws/lambda/evscrap-api',
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     const anchorWorker = new lambda.Function(this, 'AnchorWorker', {
       functionName: 'evscrap-anchor-worker',
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -284,7 +297,7 @@ export class EvscrapStack extends cdk.Stack {
         subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
       },
       securityGroups: [lambdaSecurityGroup],
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: workerLogGroup,
       environment: {
         DATABASE_URL: `postgresql://evscrap_admin@${dbProxy.endpoint}:5432/evscrap?schema=public`,
         DB_PROXY_ENDPOINT: dbProxy.endpoint,
@@ -322,7 +335,7 @@ export class EvscrapStack extends cdk.Stack {
         subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
       },
       securityGroups: [lambdaSecurityGroup],
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: apiLogGroup,
       environment: {
         DATABASE_URL: `postgresql://evscrap_admin@${dbProxy.endpoint}:5432/evscrap?schema=public`,
         DB_PROXY_ENDPOINT: dbProxy.endpoint,
@@ -339,9 +352,10 @@ export class EvscrapStack extends cdk.Stack {
       },
     });
 
-    // API Lambda 권한
+    // API Lambda 권한 (최소권한)
     dbSecret.grantRead(apiHandler);
-    evidenceBucket.grantReadWrite(apiHandler);
+    evidenceBucket.grantRead(apiHandler);   // GetObject, ListBucket
+    evidenceBucket.grantPut(apiHandler);    // PutObject만 (DeleteObject 제거 — 증빙 삭제 불가)
     anchorQueue.grantSendMessages(apiHandler);
 
     // ========================================
