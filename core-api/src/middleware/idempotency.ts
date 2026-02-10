@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import prisma from '../prisma';
+import logger from '../utils/logger';
 
 /**
  * 멱등성 미들웨어
@@ -61,7 +62,8 @@ export const idempotency = async (req: Request, res: Response, next: NextFunctio
       }
 
       // 3) COMPLETED → 캐시 응답 재전송
-      console.log(`[Idempotency] Replay: ${key}`);
+      logger.info('IDEMPOTENCY_REPLAY', { idempotency_key: key, endpoint });
+      logger.metric('idempotency_replay');
       res.setHeader('Idempotency-Replayed', 'true');
       return res.status(existing.responseStatus || 200).json(existing.responseBody);
     }
@@ -106,12 +108,12 @@ export const idempotency = async (req: Request, res: Response, next: NextFunctio
             responseStatus: statusCode,
             responseBody: body,
           },
-        }).catch(err => console.error('[Idempotency] Save failed:', err));
+        }).catch(err => logger.error('IDEMPOTENCY_SAVE_FAILED', { error: String(err) }));
       } else {
         // 4xx/5xx → IN_PROGRESS 레코드 삭제 (재시도 허용)
         prisma.idempotencyRecord.delete({
           where: { id: recordId },
-        }).catch(err => console.error('[Idempotency] Cleanup failed:', err));
+        }).catch(err => logger.error('IDEMPOTENCY_CLEANUP_FAILED', { error: String(err) }));
       }
 
       return originalJson(body);
@@ -119,7 +121,7 @@ export const idempotency = async (req: Request, res: Response, next: NextFunctio
 
     next();
   } catch (error) {
-    console.error('[Idempotency] Error:', error);
+    logger.error('IDEMPOTENCY_ERROR', { error: String(error) });
     next(); // fail open
   }
 };

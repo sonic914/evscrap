@@ -5,30 +5,21 @@
 
 import { SQSHandler, SQSRecord } from 'aws-lambda';
 import { processEvent } from './handler';
+import logger from '../utils/logger';
 
-/**
- * Lambda 핸들러 엔트리포인트
- * SQS 메시지를 받아 각 레코드를 처리
- */
 export const handler: SQSHandler = async (event) => {
-  console.log(`[AnchorWorker] Received ${event.Records.length} message(s)`);
-
-  const results = [];
+  logger.info('WORKER_BATCH_START', { record_count: event.Records.length });
 
   for (const record of event.Records) {
     try {
       const body = parseMessageBody(record);
-      console.log(`[AnchorWorker] Processing eventId: ${body.eventId}`);
       
-      await processEvent(body.eventId);
-      
-      results.push({ eventId: body.eventId, status: 'success' });
+      await processEvent(body.eventId, record.messageId);
     } catch (error) {
-      console.error(`[AnchorWorker] Failed to process record:`, error);
-      results.push({ 
-        eventId: 'unknown', 
-        status: 'failed', 
-        error: error instanceof Error ? error.message : String(error)
+      const errMsg = error instanceof Error ? error.message : String(error);
+      logger.error('WORKER_RECORD_FAILED', {
+        sqs_message_id: record.messageId,
+        error: errMsg,
       });
       
       // SQS에게 실패를 알림 (재시도 또는 DLQ로 이동)
@@ -36,12 +27,9 @@ export const handler: SQSHandler = async (event) => {
     }
   }
 
-  console.log(`[AnchorWorker] Batch processing complete:`, results);
+  logger.info('WORKER_BATCH_COMPLETE', { record_count: event.Records.length });
 };
 
-/**
- * SQS 메시지 바디 파싱
- */
 function parseMessageBody(record: SQSRecord): { eventId: string } {
   try {
     const body = JSON.parse(record.body);
@@ -52,7 +40,10 @@ function parseMessageBody(record: SQSRecord): { eventId: string } {
     
     return { eventId: body.eventId };
   } catch (error) {
-    console.error(`[AnchorWorker] Failed to parse message body:`, record.body);
+    logger.error('WORKER_PARSE_FAILED', {
+      sqs_message_id: record.messageId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw new Error(`Invalid message format: ${error instanceof Error ? error.message : String(error)}`);
   }
-}
+};

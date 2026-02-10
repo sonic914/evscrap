@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -8,6 +9,8 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
@@ -387,6 +390,61 @@ export class EvscrapStack extends cdk.Stack {
       defaultIntegration: apiIntegration,
       anyMethod: true,
     });
+
+    // ========================================
+    // Observability: SNS Topic + CloudWatch Alarms
+    // ========================================
+    const alarmTopic = new sns.Topic(this, 'AlarmTopic', {
+      topicName: 'evscrap-alarms',
+      displayName: 'evscrap Alerts (Slack/Email 연동 대기)',
+    });
+
+    const alarmAction = new cw_actions.SnsAction(alarmTopic);
+
+    // 1) API Gateway 5XX Error Rate
+    const api5xxAlarm = new cloudwatch.Alarm(this, 'Api5xxAlarm', {
+      alarmName: 'evscrap-api-5xx',
+      alarmDescription: 'API Gateway 5XX 에러 발생',
+      metric: api.metricServerError({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    api5xxAlarm.addAlarmAction(alarmAction);
+
+    // 2) Anchor Worker Lambda Errors
+    const workerErrorAlarm = new cloudwatch.Alarm(this, 'WorkerErrorAlarm', {
+      alarmName: 'evscrap-worker-errors',
+      alarmDescription: 'Anchor Worker Lambda 에러 발생',
+      metric: anchorWorker.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    workerErrorAlarm.addAlarmAction(alarmAction);
+
+    // 3) SQS DLQ 메시지 수 > 0
+    const dlqAlarm = new cloudwatch.Alarm(this, 'DlqAlarm', {
+      alarmName: 'evscrap-dlq-messages',
+      alarmDescription: 'SQS DLQ에 메시지 존재 — 앵커링 실패 메시지 확인 필요',
+      metric: anchorDLQ.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Maximum',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    dlqAlarm.addAlarmAction(alarmAction);
 
     // ========================================
     // CloudFormation Outputs

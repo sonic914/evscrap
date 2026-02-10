@@ -1,11 +1,8 @@
 import express from 'express';
-import cors from 'cors'; // Try importing cors types? If not installed, might fail.
-// If cors is not installed, use manual middleware.
-// Let's assume manual for safety as I didn't see cors in package.json
 import userRoutes from './routes/user';
 import adminRoutes from './routes/admin';
-
-import { idempotency } from './middleware/idempotency';
+import { requestLogger } from './middleware/request-logger';
+import logger from './utils/logger';
 
 const app = express();
 
@@ -16,7 +13,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key, x-correlation-id');
   
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
@@ -26,8 +23,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Idempotency Middleware (Global for simplicity, or select routes)
-app.use(idempotency);
+// 구조화 로그 + correlation_id (모든 요청에 적용)
+app.use(requestLogger);
 
 // Routes
 app.use('/user/v1', userRoutes);
@@ -44,6 +41,7 @@ app.get('/health', (req, res) => {
 
 // 404 Handler
 app.use((req, res) => {
+  logger.warn('NOT_FOUND', { method: req.method, path: req.path });
   res.status(404).json({
     error: 'Not Found',
     message: `Endpoint ${req.method} ${req.path} not found`
