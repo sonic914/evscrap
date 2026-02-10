@@ -110,6 +110,11 @@ async function main() {
     process.exit(1);
   }
 
+  // GitHub Secrets의 trailing whitespace/newline 제거
+  for (const key of required) {
+    if (process.env[key]) process.env[key] = process.env[key].trim();
+  }
+
   // ──── 1) /health ────
   const health = await apiCall('GET', '/health', { label: 'health' });
   assertStatus(health, 200, 'health');
