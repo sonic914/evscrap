@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
+import { idempotency } from '../middleware/idempotency';
 import * as tenantController from '../controllers/tenant-controller';
 import * as caseController from '../controllers/case-controller';
 import * as lotController from '../controllers/lot-controller';
@@ -12,21 +13,21 @@ const router = Router();
 // Apply Auth Middleware
 router.use(requireAuth);
 
-// Tenants
-router.post('/tenants/submit', tenantController.submitTenant);
+// Tenants (Idempotency-Key 지원)
+router.post('/tenants/submit', idempotency, tenantController.submitTenant);
 
-// Cases
-router.post('/cases', caseController.createCase);
+// Cases (Idempotency-Key 지원)
+router.post('/cases', idempotency, caseController.createCase);
 
-// Lots
-router.post('/lots', lotController.createLot);
+// Lots (Idempotency-Key 지원)
+router.post('/lots', idempotency, lotController.createLot);
 
-// Evidence
+// Evidence (Idempotency-Key 지원)
 router.post('/evidence/presign', evidenceController.createPresignedUrl);
-router.post('/evidence', evidenceController.registerEvidence);
+router.post('/evidence', idempotency, evidenceController.registerEvidence);
 
-// Events
-router.post('/:targetType/:targetId/events', eventController.createEvent);
+// Events (Idempotency-Key 지원)
+router.post('/:targetType/:targetId/events', idempotency, eventController.createEvent);
 router.get('/:targetType/:targetId/timeline', eventController.getTimeline);
 router.get('/events/:eventId/anchor', eventController.getAnchorStatus);
 

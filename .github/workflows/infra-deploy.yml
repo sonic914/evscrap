@@ -93,18 +93,31 @@ jobs:
           DB_USER=$(echo $DB_SECRET | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).username))")
           DB_PASS=$(echo $DB_SECRET | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).password))")
           
-          echo "Applying migration via Bastion SSM..."
+          echo "Applying migrations via Bastion SSM..."
+          
+          # 1) DB 연결 확인
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$BASTION_ID" \
             --document-name "AWS-RunShellScript" \
             --parameters "commands=[\"PGPASSWORD='$DB_PASS' psql -h $DB_HOST -U $DB_USER -d evscrap -c 'SELECT 1 as connected;'\"]" \
             --query 'Command.CommandId' --output text)
-          
           aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
             --instance-id "$BASTION_ID" 2>/dev/null || true
+          echo "✅ DB connection verified"
           
-          echo "✅ DB connection verified via Bastion"
+          # 2) idempotency_records v2 마이그레이션 (멱등: DROP IF EXISTS + CREATE)
+          MIGRATION_CMD="PGPASSWORD='$DB_PASS' psql -h $DB_HOST -U $DB_USER -d evscrap -c \"DROP TABLE IF EXISTS idempotency_records; CREATE TABLE IF NOT EXISTS idempotency_records (id TEXT NOT NULL, scope_type TEXT NOT NULL, scope_id TEXT NOT NULL, endpoint TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT, status TEXT NOT NULL DEFAULT 'IN_PROGRESS', response_status INTEGER, response_body JSONB, created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, expires_at TIMESTAMP(3), CONSTRAINT idempotency_records_pkey PRIMARY KEY (id)); CREATE UNIQUE INDEX IF NOT EXISTS idempotency_records_scope_key ON idempotency_records(scope_type, scope_id, endpoint, idempotency_key);\""
+          
+          CMD_ID2=$(aws ssm send-command \
+            --instance-ids "$BASTION_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"$MIGRATION_CMD\"]" \
+            --query 'Command.CommandId' --output text)
+          aws ssm wait command-executed \
+            --command-id "$CMD_ID2" \
+            --instance-id "$BASTION_ID" 2>/dev/null || true
+          echo "✅ idempotency_records v2 migration applied"
 
       # ---- Resolve Outputs + Smoke Tests ----
       - name: Resolve CDK Outputs
@@ -138,6 +151,13 @@ jobs:
           TEST_ADMIN_USERNAME: ${{ secrets.TEST_ADMIN_USERNAME }}
           TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
         run: node scripts/db-smoke.mjs
+
+      # ---- Idempotency-Key E2E Test ----
+      - name: Idempotency E2E Test
+        env:
+          TEST_USER_USERNAME: ${{ secrets.TEST_USER_USERNAME }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+        run: node scripts/e2e-idempotency.mjs
 
       - name: Output deployment info
         run: |
