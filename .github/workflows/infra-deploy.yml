@@ -69,6 +69,13 @@ jobs:
         working-directory: ./infra
         run: npx cdk synth
 
+      # 기존 Lambda 자동 생성 LogGroup 삭제 (CDK logGroup 전환 1회성)
+      - name: Remove orphaned LogGroups (one-time migration)
+        run: |
+          aws logs delete-log-group --log-group-name /aws/lambda/evscrap-anchor-worker 2>/dev/null || true
+          aws logs delete-log-group --log-group-name /aws/lambda/evscrap-api 2>/dev/null || true
+          echo "✅ Orphaned LogGroups cleaned up"
+
       - name: CDK Deploy
         working-directory: ./infra
         run: npx cdk deploy --all --require-approval never --outputs-file cdk-outputs.json
