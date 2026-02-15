@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 import prisma from '../prisma';
@@ -189,5 +189,62 @@ export const listEvidenceByTarget = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error listing evidence:', error);
     return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to list evidence');
+  }
+};
+
+/**
+ * GET /user/v1/evidence/:evidenceId/download-url
+ * Presigned GET URL을 발급하여 증빙 파일 다운로드를 허용한다.
+ * 보안: tenant 격리 + presigned URL 로그 금지
+ */
+const DOWNLOAD_EXPIRES_SEC = 120;
+
+export const getDownloadUrl = async (req: Request, res: Response) => {
+  try {
+    const { evidenceId } = req.params;
+    const tenantId = req.user?.tenantId;
+
+    if (!tenantId) {
+      return errorResponse(res, 401, ErrorCode.UNAUTHORIZED, 'User context missing');
+    }
+
+    // tenant 격리: evidence_id + tenant_id 동시 검증
+    const evidence = await prisma.evidence.findFirst({
+      where: { id: evidenceId, tenantId },
+    });
+
+    if (!evidence) {
+      return errorResponse(res, 404, ErrorCode.RESOURCE_NOT_FOUND, 'Evidence not found');
+    }
+
+    const bucket = evidence.s3Bucket || BUCKET_NAME;
+    if (!bucket) {
+      return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Evidence bucket configuration missing');
+    }
+
+    // 원본 파일명 추출 (s3Key: tenants/{tenantId}/{evidenceId}/{filename})
+    const filename = evidence.s3Key.split('/').pop() || evidenceId;
+
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: evidence.s3Key,
+      ResponseContentDisposition: `attachment; filename="${encodeURIComponent(filename)}"`,
+      ...(evidence.mimeType && { ResponseContentType: evidence.mimeType }),
+    });
+
+    const downloadUrl = await getSignedUrl(s3Client, command, { expiresIn: DOWNLOAD_EXPIRES_SEC });
+    const expiresAt = new Date(Date.now() + DOWNLOAD_EXPIRES_SEC * 1000).toISOString();
+
+    // ⚠️ download_url은 절대 로그에 출력하지 않는다
+    return res.json({
+      download_url: downloadUrl,
+      expires_at: expiresAt,
+      evidence_id: evidence.id,
+      filename,
+      mime_type: evidence.mimeType,
+    });
+  } catch (error: any) {
+    console.error('Error generating download URL for evidence:', error?.message);
+    return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to generate download URL');
   }
 };

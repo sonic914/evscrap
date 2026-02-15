@@ -25,6 +25,7 @@ router.post('/lots', idempotency, lotController.createLot);
 // Evidence (Idempotency-Key 지원)
 router.post('/evidence/presign', evidenceController.createPresignedUrl);
 router.post('/evidence', idempotency, evidenceController.registerEvidence);
+router.get('/evidence/:evidenceId/download-url', evidenceController.getDownloadUrl);
 
 // Settlement list (정적 경로, 동적 라우트보다 먼저)
 router.get('/settlements', settlementController.listSettlements);

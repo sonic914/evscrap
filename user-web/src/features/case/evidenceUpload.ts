@@ -19,6 +19,9 @@ export interface UploadResult {
 interface UploadCallbacks {
   onStageChange: (stage: UploadStage) => void;
   onNavigate: (path: string) => void;
+  /** target 연결 (선택) */
+  targetType?: string;
+  targetId?: string;
 }
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
@@ -27,7 +30,7 @@ export async function uploadEvidence(
   file: File,
   callbacks: UploadCallbacks,
 ): Promise<UploadResult> {
-  const { onStageChange, onNavigate } = callbacks;
+  const { onStageChange, onNavigate, targetType, targetId } = callbacks;
 
   // 파일 크기 제한
   if (file.size > MAX_FILE_SIZE) {
@@ -51,11 +54,17 @@ export async function uploadEvidence(
   let s3Key: string;
 
   try {
+    const presignBody: Record<string, unknown> = {
+      filename: file.name,
+      mime_type: file.type || 'application/octet-stream',
+    };
+    if (targetType && targetId) {
+      presignBody.target_type = targetType;
+      presignBody.target_id = targetId;
+    }
+
     const { data, error: apiErr, response } = await api.POST('/user/v1/evidence/presign', {
-      body: {
-        filename: file.name,
-        mime_type: file.type || 'application/octet-stream',
-      } as never,
+      body: presignBody as never,
     });
 
     if (handle401(response?.status, onNavigate)) {
@@ -102,12 +111,20 @@ export async function uploadEvidence(
   onStageChange('registering');
   try {
     const idempotencyKey = makeIdempotencyKey();
+    const registerBody: Record<string, unknown> = {
+      evidence_id: evidenceId,
+      sha256,
+      size_bytes: file.size,
+      s3_key: s3Key,
+      mime_type: file.type || 'application/octet-stream',
+    };
+    if (targetType && targetId) {
+      registerBody.target_type = targetType;
+      registerBody.target_id = targetId;
+    }
+
     const { data: regData, error: regErr, response: regRes } = await api.POST('/user/v1/evidence', {
-      body: {
-        evidence_id: evidenceId,
-        sha256,
-        size_bytes: file.size,
-      } as never,
+      body: registerBody as never,
       headers: { 'Idempotency-Key': idempotencyKey } as never,
     });
 

@@ -267,6 +267,51 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /user/v1/evidence/{evidenceId}/download-url:
+    get:
+      summary: 증빙 파일 다운로드 URL 생성
+      description: |
+        Presigned GET URL을 발급하여 증빙 파일 다운로드를 허용한다.
+        URL은 120초 후 만료된다. tenant 격리가 적용된다.
+      operationId: getEvidenceDownloadUrl
+      tags: [User - Evidence]
+      security:
+        - scrapyardJwt: []
+      parameters:
+        - name: evidenceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 다운로드 URL 생성 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [download_url, expires_at, evidence_id, filename]
+                properties:
+                  download_url:
+                    type: string
+                    format: uri
+                    description: Presigned GET URL (120초 만료)
+                  expires_at:
+                    type: string
+                    format: date-time
+                  evidence_id:
+                    type: string
+                    format: uuid
+                  filename:
+                    type: string
+                  mime_type:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /user/v1/{targetType}/{targetId}/evidence:
     get:
       summary: 대상(CASE/LOT)에 연결된 증빙 목록 조회

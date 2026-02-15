@@ -106,6 +106,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/user/v1/evidence/{evidenceId}/download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 증빙 파일 다운로드 URL 생성
+         * @description Presigned GET URL을 발급하여 증빙 파일 다운로드를 허용한다.
+         *     URL은 120초 후 만료된다. tenant 격리가 적용된다.
+         */
+        get: operations["getEvidenceDownloadUrl"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/v1/{targetType}/{targetId}/evidence": {
         parameters: {
             query?: never;
@@ -1104,6 +1125,42 @@ export interface operations {
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getEvidenceDownloadUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidenceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 다운로드 URL 생성 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * Format: uri
+                         * @description Presigned GET URL (120초 만료)
+                         */
+                        download_url: string;
+                        /** Format: date-time */
+                        expires_at: string;
+                        /** Format: uuid */
+                        evidence_id: string;
+                        filename: string;
+                        mime_type?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     listEvidenceByTarget: {
