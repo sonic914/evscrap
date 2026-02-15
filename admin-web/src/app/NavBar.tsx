@@ -16,8 +16,10 @@ export default function NavBar() {
   const links = [
     { href: '/', label: '대시보드' },
     { href: '/tenants', label: '테넌트' },
+    { href: '/cases', label: '케이스' },
     { href: '/settlements', label: '정산' },
     { href: '/events', label: '이벤트' },
+    { href: '/audit/missing-anchors', label: '감사' },
   ];
 
   return (

@@ -39,3 +39,18 @@ export function getAdminApi(): ApiClient {
 export function makeIdempotencyKey(): string {
   return crypto.randomUUID();
 }
+
+/**
+ * openapi-fetch 0.13.x의 PathsWithMethod 타입이 paths 수 26개 이상에서
+ * depth limit에 걸리는 이슈 우회용 untyped GET 래퍼.
+ * 런타임 동작은 정상이며 응답은 as unknown으로 캐스팅.
+ *
+ * TODO: openapi-fetch를 0.14+ 또는 1.x로 업그레이드 시 제거
+ */
+export async function adminGet<T = unknown>(
+  path: string,
+  options?: { params?: { path?: Record<string, string>; query?: Record<string, unknown> } },
+): Promise<{ data: T | undefined; error: unknown; response: Response | undefined }> {
+  const api = getAdminApi() as any;
+  return api.GET(path, options);
+}
