@@ -106,6 +106,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/user/v1/{targetType}/{targetId}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 대상(CASE/LOT)에 연결된 증빙 목록 조회 */
+        get: operations["listEvidenceByTarget"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/user/v1/settlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 내 정산 목록 조회 */
+        get: operations["listUserSettlements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/v1/{targetType}/{targetId}/events": {
         parameters: {
             query?: never;
@@ -541,6 +575,16 @@ export interface components {
             uploaded_at: string;
             /** Format: uuid */
             tenant_id: string;
+            /**
+             * @description 증빙 연결 대상 유형
+             * @enum {string|null}
+             */
+            target_type?: "CASE" | "LOT" | null;
+            /**
+             * Format: uuid
+             * @description 증빙 연결 대상 ID
+             */
+            target_id?: string | null;
         };
         Event: {
             /** Format: uuid */
@@ -978,6 +1022,16 @@ export interface operations {
                     filename: string;
                     /** @example image/jpeg */
                     mime_type: string;
+                    /**
+                     * @description 증빙을 연결할 대상 유형 (선택)
+                     * @enum {string}
+                     */
+                    target_type?: "CASE" | "LOT";
+                    /**
+                     * Format: uuid
+                     * @description 증빙을 연결할 대상 ID (선택)
+                     */
+                    target_id?: string;
                 };
             };
         };
@@ -1019,8 +1073,22 @@ export interface operations {
                     evidence_id: string;
                     sha256: string;
                     size_bytes: number;
+                    /** @description presign에서 받은 S3 키 */
+                    s3_key: string;
+                    /** @description MIME 타입 (선택, 기본 application/octet-stream) */
+                    mime_type?: string;
                     /** Format: date-time */
                     captured_at?: string;
+                    /**
+                     * @description 증빙 연결 대상 유형 (선택)
+                     * @enum {string}
+                     */
+                    target_type?: "CASE" | "LOT";
+                    /**
+                     * Format: uuid
+                     * @description 증빙 연결 대상 ID (선택)
+                     */
+                    target_id?: string;
                 };
             };
         };
@@ -1035,6 +1103,58 @@ export interface operations {
                 };
             };
             400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listEvidenceByTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                targetType: components["schemas"]["TargetType"];
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 증빙 목록 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["Evidence"][];
+                        total?: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listUserSettlements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 정산 목록 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["Settlement"][];
+                        total?: number;
+                    };
+                };
+            };
             401: components["responses"]["Unauthorized"];
         };
     };

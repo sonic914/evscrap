@@ -2,6 +2,46 @@ import { Request, Response } from 'express';
 import prisma from '../prisma';
 import { toSnakeCaseKeys, errorResponse, ErrorCode } from '../utils/response';
 
+/**
+ * GET /user/v1/settlements
+ * 내 tenant의 케이스/랏에 대한 정산 목록 반환
+ */
+export const listSettlements = async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) {
+      return errorResponse(res, 401, ErrorCode.UNAUTHORIZED, 'User context missing');
+    }
+
+    // tenant 소유 CASE/LOT ID 수집
+    const [cases, lots] = await Promise.all([
+      prisma.case.findMany({ where: { tenantId }, select: { id: true } }),
+      prisma.lot.findMany({ where: { tenantId }, select: { id: true } }),
+    ]);
+    const caseIds = cases.map(c => c.id);
+    const lotIds = lots.map(l => l.id);
+
+    // target이 내 CASE 또는 LOT인 정산만
+    const settlements = await prisma.settlement.findMany({
+      where: {
+        OR: [
+          { targetType: 'CASE', targetId: { in: caseIds } },
+          { targetType: 'LOT', targetId: { in: lotIds } },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    return res.json({
+      items: settlements.map(toSnakeCaseKeys),
+      total: settlements.length,
+    });
+  } catch (error: any) {
+    console.error('Error listing settlements:', error);
+    return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to list settlements');
+  }
+};
+
 export const createSettlement = async (req: Request, res: Response) => {
   try {
     const { targetType, targetId } = req.params;

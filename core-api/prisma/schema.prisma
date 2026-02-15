@@ -84,10 +84,13 @@ model Evidence {
     capturedAt DateTime? @map("captured_at")
     uploadedAt DateTime  @default(now()) @map("uploaded_at")
     tenantId   String    @map("tenant_id")
+    targetType String?   @map("target_type") // CASE, LOT 등 (nullable=하위호환)
+    targetId   String?   @map("target_id") // 연결 대상 ID (nullable=하위호환)
 
     // Relations
     tenant Tenant @relation(fields: [tenantId], references: [id])
 
+    @@index([tenantId, targetType, targetId, uploadedAt])
     @@map("evidence")
 }
 

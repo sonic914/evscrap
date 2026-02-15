@@ -26,12 +26,18 @@ router.post('/lots', idempotency, lotController.createLot);
 router.post('/evidence/presign', evidenceController.createPresignedUrl);
 router.post('/evidence', idempotency, evidenceController.registerEvidence);
 
+// Settlement list (정적 경로, 동적 라우트보다 먼저)
+router.get('/settlements', settlementController.listSettlements);
+
+// Evidence list by target
+router.get('/:targetType/:targetId/evidence', evidenceController.listEvidenceByTarget);
+
 // Events (Idempotency-Key 지원)
 router.post('/:targetType/:targetId/events', idempotency, eventController.createEvent);
 router.get('/:targetType/:targetId/timeline', eventController.getTimeline);
 router.get('/events/:eventId/anchor', eventController.getAnchorStatus);
 
-// Settlement
+// Settlement (single)
 router.post('/:targetType/:targetId/settlement', settlementController.createSettlement);
 router.get('/:targetType/:targetId/settlement', settlementController.getSettlement);
 
