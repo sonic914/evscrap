@@ -10,7 +10,11 @@ on:
       - "core-api/prisma/**"
       - "core-api/scripts/**"
       - "core-api/package.json"
-      - "scripts/**"
+      - "scripts/db-smoke.mjs"
+      - "scripts/e2e-idempotency.mjs"
+      - "scripts/resolve-outputs.mjs"
+      - "scripts/get-api-endpoint.mjs"
+      - "scripts/smoke-test.sh"
       - ".github/workflows/infra-deploy.yml"
   workflow_dispatch:
 
@@ -104,15 +108,15 @@ jobs:
           
           echo "Applying migrations via Bastion SSM (secrets read on-instance)..."
           
-          # 1) DB 연결 확인 — Bastion이 Secret을 직접 조회
+          # 1) DB 연결 확인 — Bastion이 Secret을 직접 조회 (jq 사용)
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$BASTION_ID" \
             --document-name "AWS-RunShellScript" \
             --parameters "commands=[
               \"set +x\",
               \"SECRET_JSON=\\$(aws secretsmanager get-secret-value --secret-id $DB_SECRET_ARN --query SecretString --output text --region ap-northeast-2)\",
-              \"DB_USER=\\$(python3 -c \\\"import json; j=json.loads('\\$SECRET_JSON'); print(j['username'])\\\")\",
-              \"DB_PASS=\\$(python3 -c \\\"import json; j=json.loads('\\$SECRET_JSON'); print(j['password'])\\\")\",
+              \"DB_USER=\\$(echo \\$SECRET_JSON | jq -r .username)\",
+              \"DB_PASS=\\$(echo \\$SECRET_JSON | jq -r .password)\",
               \"if [ -z \\\"\\$DB_USER\\\" ] || [ -z \\\"\\$DB_PASS\\\" ]; then echo 'ERROR: empty credentials'; exit 1; fi\",
               \"PGPASSWORD=\\$DB_PASS psql -h $DB_HOST -U \\$DB_USER -d evscrap -c 'SELECT 1 as connected;'\",
               \"echo 'DB connection OK'\"
@@ -135,15 +139,15 @@ jobs:
           fi
           echo "✅ DB connection verified"
           
-          # 2) idempotency_records v2 마이그레이션
+          # 2) idempotency_records v2 마이그레이션 (jq 사용)
           CMD_ID2=$(aws ssm send-command \
             --instance-ids "$BASTION_ID" \
             --document-name "AWS-RunShellScript" \
             --parameters "commands=[
               \"set +x\",
               \"SECRET_JSON=\\$(aws secretsmanager get-secret-value --secret-id $DB_SECRET_ARN --query SecretString --output text --region ap-northeast-2)\",
-              \"DB_USER=\\$(python3 -c \\\"import json; j=json.loads('\\$SECRET_JSON'); print(j['username'])\\\")\",
-              \"DB_PASS=\\$(python3 -c \\\"import json; j=json.loads('\\$SECRET_JSON'); print(j['password'])\\\")\",
+              \"DB_USER=\\$(echo \\$SECRET_JSON | jq -r .username)\",
+              \"DB_PASS=\\$(echo \\$SECRET_JSON | jq -r .password)\",
               \"if [ -z \\\"\\$DB_USER\\\" ] || [ -z \\\"\\$DB_PASS\\\" ]; then echo 'ERROR: empty credentials'; exit 1; fi\",
               \"echo $SQL_B64 | base64 -d | PGPASSWORD=\\$DB_PASS psql -h $DB_HOST -U \\$DB_USER -d evscrap\",
               \"echo 'Migration applied'\"
