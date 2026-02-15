@@ -41,6 +41,10 @@ logs/
 .cache/
 .parcel-cache/
 
+# Next.js
+.next/
+out/
+
 # Build artifacts
 *.tgz
 *.zip

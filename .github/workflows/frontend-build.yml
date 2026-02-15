@@ -1,0 +1,53 @@
+name: Frontend Build Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "admin-web/**"
+      - "user-web/**"
+      - "shared/api-client/**"
+      - ".github/workflows/frontend-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install api-client
+        working-directory: ./shared/api-client
+        run: npm ci
+
+      - name: Build api-client
+        working-directory: ./shared/api-client
+        run: npm run build
+
+      - name: Install admin-web
+        working-directory: ./admin-web
+        run: npm install
+
+      - name: Build admin-web
+        working-directory: ./admin-web
+        run: npm run build
+
+      - name: Install user-web
+        working-directory: ./user-web
+        run: npm install
+
+      - name: Build user-web
+        working-directory: ./user-web
+        run: npm run build

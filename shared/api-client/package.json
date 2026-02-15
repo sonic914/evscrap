@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "description": "evscrap OpenAPI typed client (openapi-typescript + openapi-fetch)",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "generate:openapi": "openapi-typescript ../../core-api/openapi.yaml -o src/generated/openapi-types.ts",
+    "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
