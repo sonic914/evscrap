@@ -1,0 +1,53 @@
+name: OpenAPI Type Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "core-api/openapi.yaml"
+      - "shared/api-client/**"
+      - ".github/workflows/openapi-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  openapi-check:
+    name: OpenAPI Generate & Typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: shared/api-client/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./shared/api-client
+        run: npm ci
+
+      - name: Generate OpenAPI types
+        working-directory: ./shared/api-client
+        run: npm run generate:openapi
+
+      - name: Check generated file is up to date
+        run: |
+          if ! git diff --exit-code shared/api-client/src/generated/openapi-types.ts; then
+            echo ""
+            echo "❌ openapi-types.ts is out of date!"
+            echo "Run: cd shared/api-client && npm run generate:openapi"
+            echo "Then commit the updated file."
+            exit 1
+          fi
+          echo "✅ OpenAPI generated types are up to date"
+
+      - name: TypeScript type check
+        working-directory: ./shared/api-client
+        run: npm run typecheck
