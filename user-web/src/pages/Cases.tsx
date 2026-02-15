@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isLoggedIn, logout } from '../lib/auth';
-import { getUserApi } from '../lib/api';
+import { getUserApi, handle401, makeIdempotencyKey } from '../lib/api';
 
 export default function CasesPage() {
   const navigate = useNavigate();
@@ -22,10 +22,11 @@ export default function CasesPage() {
     setResult('');
     try {
       const api = getUserApi();
-      const { data, error } = await api.POST('/user/v1/cases', {
+      const { data, error, response } = await api.POST('/user/v1/cases', {
         body: { vin, make, model } as never,
-        headers: { 'Idempotency-Key': crypto.randomUUID() } as never,
+        headers: { 'Idempotency-Key': makeIdempotencyKey() } as never,
       });
+      if (handle401(response?.status, navigate)) return;
       if (error) {
         setResult(`❌ 실패: ${JSON.stringify(error)}`);
       } else {

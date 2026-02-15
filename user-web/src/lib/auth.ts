@@ -30,7 +30,7 @@ export async function login(username: string, password: string): Promise<string>
       onSuccess: (result: CognitoUserSession) => {
         const idToken = result.getIdToken().getJwtToken();
         console.log(`[auth] 로그인 성공 (token length: ${idToken.length})`);
-        localStorage.setItem('idToken', idToken);
+        localStorage.setItem('user_id_token', idToken);
         resolve(idToken);
       },
       onFailure: (err: Error) => {
@@ -42,11 +42,11 @@ export async function login(username: string, password: string): Promise<string>
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem('idToken');
+  return localStorage.getItem('user_id_token');
 }
 
 export function logout(): void {
-  localStorage.removeItem('idToken');
+  localStorage.removeItem('user_id_token');
 }
 
 export function isLoggedIn(): boolean {
