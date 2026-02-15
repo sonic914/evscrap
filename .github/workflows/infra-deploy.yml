@@ -12,6 +12,7 @@ on:
       - "core-api/package.json"
       - "scripts/db-smoke.mjs"
       - "scripts/e2e-idempotency.mjs"
+      - "scripts/e2e-admin-read.mjs"
       - "scripts/resolve-outputs.mjs"
       - "scripts/get-api-endpoint.mjs"
       - "scripts/smoke-test.sh"
@@ -213,6 +214,14 @@ jobs:
           TEST_USER_USERNAME: ${{ secrets.TEST_USER_USERNAME }}
           TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
         run: node scripts/e2e-idempotency.mjs
+
+      # ---- Admin Read API E2E Test (P2-1.5) ----
+      - name: Admin Read E2E Test
+        env:
+          TEST_ADMIN_USERNAME: ${{ secrets.TEST_ADMIN_USERNAME }}
+          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+        run: node scripts/e2e-admin-read.mjs
+        continue-on-error: true
 
       - name: Output deployment info
         run: |

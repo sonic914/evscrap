@@ -384,6 +384,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/v1/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 케이스 목록 조회 */
+        get: operations["adminListCases"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/v1/cases/{caseId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 케이스 상세 조회 (lots + 이벤트 요약 포함) */
+        get: operations["adminGetCase"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/v1/{targetType}/{targetId}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 타임라인 조회 (Admin) */
+        get: operations["adminGetTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/v1/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 증빙 목록 조회 (tenant 기준 + presigned GET URL)
+         * @description Evidence 테이블에는 targetType/targetId가 없으므로 tenant_id 기준 조회.
+         *     각 항목에 10분 만료 presigned GET URL 포함.
+         */
+        get: operations["adminListEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1398,6 +1470,133 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    adminListCases: {
+        parameters: {
+            query?: {
+                tenant_id?: string;
+                vin?: string;
+                from?: string;
+                to?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 케이스 목록 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["Case"][];
+                        limit?: number;
+                        offset?: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    adminGetCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 케이스 상세 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Case"] & {
+                        lots?: components["schemas"]["Lot"][];
+                        event_count?: number;
+                        latest_event?: components["schemas"]["Event"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminGetTimeline: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before?: string;
+            };
+            header?: never;
+            path: {
+                targetType: components["schemas"]["TargetType"];
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 타임라인 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        events?: components["schemas"]["Event"][];
+                        target_type?: components["schemas"]["TargetType"];
+                        /** Format: uuid */
+                        target_id?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    adminListEvidence: {
+        parameters: {
+            query: {
+                tenant_id: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 증빙 목록 (presigned URL 포함) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: (components["schemas"]["Evidence"] & {
+                            /** Format: uri */
+                            presigned_url?: string | null;
+                            /** @description presigned URL 만료 시간(초) */
+                            presign_expires_in?: number;
+                        })[];
+                        limit?: number;
+                        offset?: number;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
         };
     };
