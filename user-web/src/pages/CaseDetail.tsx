@@ -4,6 +4,7 @@ import { isLoggedIn } from '../lib/auth';
 import TimelineSection from '../features/case/TimelineSection';
 import LotsSection from '../features/case/LotsSection';
 import EventsSection from '../features/case/EventsSection';
+import EvidenceSection from '../features/case/EvidenceSection';
 
 export default function CaseDetailPage() {
   const navigate = useNavigate();
@@ -37,6 +38,7 @@ export default function CaseDetailPage() {
         <TimelineSection caseId={caseId} refreshTrigger={refreshTrigger} />
         <LotsSection caseId={caseId} onLotCreated={handleRefreshTimeline} />
         <EventsSection caseId={caseId} onEventCreated={handleRefreshTimeline} />
+        <EvidenceSection caseId={caseId} />
       </div>
     </div>
   );
