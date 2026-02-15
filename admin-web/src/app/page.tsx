@@ -1,66 +1,35 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+'use client';
 
-export default function Home() {
+import Link from 'next/link';
+import NavBar from './NavBar';
+import { useAuthGuard } from '@/lib/useAuthGuard';
+
+export default function DashboardPage() {
+  const authed = useAuthGuard();
+  if (!authed) return <div className="loading">인증 확인 중...</div>;
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <>
+      <NavBar />
+      <div className="page">
+        <h1>관리자 대시보드</h1>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginTop: 16 }}>
+          <DashCard href="/tenants" title="테넌트 관리" desc="폐차장 등록 조회 및 승인" />
+          <DashCard href="/settlements" title="정산 관리" desc="정산 승인/확정 (앵커 게이트)" />
+          <DashCard href="/events" title="이벤트 조회" desc="이벤트 목록 및 앵커 상태 확인" />
         </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </>
+  );
+}
+
+function DashCard({ href, title, desc }: { href: string; title: string; desc: string }) {
+  return (
+    <Link href={href} style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div className="detail-card" style={{ cursor: 'pointer' }}>
+        <h2 style={{ marginBottom: 8 }}>{title}</h2>
+        <p style={{ color: '#666', fontSize: 14 }}>{desc}</p>
+      </div>
+    </Link>
   );
 }

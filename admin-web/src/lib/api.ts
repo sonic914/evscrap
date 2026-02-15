@@ -1,20 +1,41 @@
 /**
  * Admin API 클라이언트
- * @evscrap/api-client를 래핑하여 baseUrl + 토큰 자동 주입
+ *
+ * 보수적 원칙:
+ * - 모든 요청에 x-correlation-id 헤더 주입 (crypto.randomUUID())
+ * - Authorization: Bearer <admin_id_token>
+ * - 쓰기 요청에는 Idempotency-Key 별도 주입
  */
-import { createApiClient } from '@evscrap/api-client';
-import { getToken } from './auth';
+import { createApiClient, type ApiClient } from '@evscrap/api-client';
+import { getAdminToken } from './auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
-if (!API_BASE) {
+if (typeof window !== 'undefined' && !API_BASE) {
   console.warn('[api] NEXT_PUBLIC_API_BASE 환경변수 설정 필요');
 }
 
-export function getAdminApi() {
-  const token = getToken();
-  return createApiClient({
-    baseUrl: API_BASE,
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
+/**
+ * 요청별 correlation_id가 포함된 API 클라이언트 생성
+ * 페이지/액션 단위로 호출하여 사용
+ */
+export function getAdminApi(): ApiClient {
+  const token = getAdminToken();
+  const correlationId = crypto.randomUUID();
+
+  const headers: Record<string, string> = {
+    'x-correlation-id': correlationId,
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  return createApiClient({ baseUrl: API_BASE, headers });
+}
+
+/**
+ * 쓰기 요청용 Idempotency-Key 생성
+ */
+export function makeIdempotencyKey(): string {
+  return crypto.randomUUID();
 }
