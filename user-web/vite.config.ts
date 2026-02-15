@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  define: {
+    // amazon-cognito-identity-js가 Node.js 'global' 객체를 참조하므로 polyfill
+    global: 'globalThis',
+  },
   plugins: [
     react(),
     VitePWA({
