@@ -33,6 +33,7 @@ router.get('/evidence', evidenceController.listEvidence);
 // Settlements
 router.get('/settlements', settlementController.listSettlements);
 router.get('/settlements/:id', settlementController.getSettlementById);
+router.get('/settlements/:id/breakdown', settlementController.getBreakdown);
 router.post('/settlements/:id/approve', settlementController.approveSettlement);
 router.post('/settlements/:id/commit', settlementController.commitSettlement);
 

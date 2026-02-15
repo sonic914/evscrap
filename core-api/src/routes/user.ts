@@ -41,6 +41,7 @@ router.get('/events/:eventId/anchor', eventController.getAnchorStatus);
 // Settlement (single)
 router.post('/:targetType/:targetId/settlement', settlementController.createSettlement);
 router.get('/:targetType/:targetId/settlement', settlementController.getSettlement);
+router.get('/:targetType/:targetId/settlement/breakdown', settlementController.getBreakdown);
 
 // Current User (Placeholder)
 router.get('/me', (req, res) => {

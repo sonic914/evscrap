@@ -4,11 +4,25 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import NavBar from '../NavBar';
 import { useAuthGuard, handle401 } from '@/lib/useAuthGuard';
-import { getAdminApi, makeIdempotencyKey } from '@/lib/api';
+import { getAdminApi, adminGet, makeIdempotencyKey } from '@/lib/api';
 import { mapApiError, type ApiErrorInfo } from '@/lib/errors';
 import type { components } from '@evscrap/api-client';
 
 type Settlement = components['schemas']['Settlement'];
+
+interface BreakdownItem {
+  id: string; code: string; title: string; category: string; amount: number;
+  quantity?: number | null; unit?: string | null; unit_price?: number | null;
+  evidence_ref?: string | null; note?: string | null; created_at: string;
+}
+interface BreakdownData {
+  settlement_id: string; items: BreakdownItem[];
+  summary: { min: number; bonus: number; deduction: number; other: number; total: number };
+  consistency: { rule: string; ok: boolean };
+}
+
+const CAT_LABEL: Record<string, string> = { MIN: '최소 보장', BONUS: '보너스', DEDUCTION: '차감', LOGISTICS: '물류비', OTHER: '기타' };
+const CAT_COLOR: Record<string, string> = { MIN: '#17a2b8', BONUS: '#28a745', DEDUCTION: '#dc3545', LOGISTICS: '#fd7e14', OTHER: '#6c757d' };
 
 function statusBadge(status: string) {
   const s = status.toLowerCase().replace('ready_for_approval', 'pending');
@@ -27,6 +41,7 @@ export default function SettlementDetailClient() {
   const authed = useAuthGuard();
 
   const [settlement, setSettlement] = useState<Settlement | null>(null);
+  const [breakdown, setBreakdown] = useState<BreakdownData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ApiErrorInfo | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -53,6 +68,11 @@ export default function SettlementDetailClient() {
         return;
       }
       setSettlement(data as Settlement);
+      // breakdown 로드 (실패해도 settlement은 표시)
+      try {
+        const bdRes = await adminGet<BreakdownData>(`/admin/v1/settlements/${settlementId}/breakdown`);
+        if (bdRes.data) setBreakdown(bdRes.data);
+      } catch { /* ignore */ }
     } catch (err) {
       setError({ code: 'UNKNOWN', message: err instanceof Error ? err.message : '알 수 없는 오류' });
     } finally {
@@ -181,6 +201,73 @@ export default function SettlementDetailClient() {
             {settlement.status === 'COMMITTED' && (
               <div className="alert alert-success" style={{ marginTop: 16 }}>이 정산은 이미 확정(COMMITTED) 되었습니다.</div>
             )}
+
+            {/* Breakdown 섹션 */}
+            <div className="detail-card" style={{ marginTop: 16 }}>
+              <h2>📊 정산 구성 (Breakdown)</h2>
+              {breakdown && breakdown.items.length > 0 ? (
+                <>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #ddd', textAlign: 'left' }}>
+                        <th style={{ padding: 6 }}>코드</th>
+                        <th style={{ padding: 6 }}>항목명</th>
+                        <th style={{ padding: 6, textAlign: 'center' }}>분류</th>
+                        <th style={{ padding: 6, textAlign: 'right' }}>금액</th>
+                        <th style={{ padding: 6 }}>비고</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {breakdown.items.map(item => (
+                        <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: 6, fontFamily: 'monospace', fontSize: 11 }}>{item.code}</td>
+                          <td style={{ padding: 6 }}>
+                            {item.title}
+                            {item.quantity != null && item.unit && (
+                              <span style={{ fontSize: 11, color: '#888', marginLeft: 4 }}>
+                                ({item.quantity} {item.unit}{item.unit_price != null ? ` × ${formatAmount(item.unit_price)}` : ''})
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: 6, textAlign: 'center' }}>
+                            <span style={{ padding: '2px 6px', borderRadius: 6, fontSize: 10, color: '#fff', background: CAT_COLOR[item.category] || '#999' }}>
+                              {CAT_LABEL[item.category] || item.category}
+                            </span>
+                          </td>
+                          <td style={{ padding: 6, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: item.amount < 0 ? '#dc3545' : undefined }}>
+                            {formatAmount(item.amount)}
+                          </td>
+                          <td style={{ padding: 6, fontSize: 11, color: '#888' }}>{item.note || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: '2px solid #333', fontWeight: 'bold' }}>
+                        <td colSpan={3} style={{ padding: 6 }}>합계</td>
+                        <td style={{ padding: 6, textAlign: 'right' }}>{formatAmount(breakdown.summary.total)}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                  <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 12, flexWrap: 'wrap' }}>
+                    {breakdown.summary.min > 0 && <span>최소보장: {formatAmount(breakdown.summary.min)}</span>}
+                    {breakdown.summary.bonus > 0 && <span style={{ color: '#28a745' }}>보너스: +{formatAmount(breakdown.summary.bonus)}</span>}
+                    {breakdown.summary.deduction !== 0 && <span style={{ color: '#dc3545' }}>차감: {formatAmount(breakdown.summary.deduction)}</span>}
+                  </div>
+                  <div style={{
+                    marginTop: 8, padding: 8, borderRadius: 4, fontSize: 12,
+                    background: breakdown.consistency.ok ? '#d4edda' : '#fff3cd',
+                    color: breakdown.consistency.ok ? '#155724' : '#856404',
+                  }}>
+                    {breakdown.consistency.ok
+                      ? `✅ 정합성 통과 (${breakdown.consistency.rule})`
+                      : `⚠️ 정합성 불일치: 항목합계(${formatAmount(breakdown.summary.total)}) ≠ 총액(${formatAmount(settlement.amount_total)})`}
+                  </div>
+                </>
+              ) : (
+                <p style={{ color: '#999', marginTop: 8 }}>Breakdown 항목이 없습니다.</p>
+              )}
+            </div>
           </>
         ) : (
           <div className="alert alert-error">정산을 찾을 수 없습니다</div>

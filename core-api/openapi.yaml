@@ -479,6 +479,40 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /user/v1/{targetType}/{targetId}/settlement/breakdown:
+    get:
+      summary: 정산 항목별 breakdown 조회
+      description: |
+        정산의 세부 항목(breakdown items)을 조회한다.
+        정합성 검증 결과(consistency)도 포함된다.
+      operationId: getSettlementBreakdown
+      tags: [User - Settlement]
+      security:
+        - scrapyardJwt: []
+      parameters:
+        - name: targetType
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/TargetType'
+        - name: targetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Breakdown 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementBreakdown'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /user/v1/events/{eventId}/anchor:
     get:
       summary: 앵커 상태 조회
@@ -702,6 +736,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Settlement'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/v1/settlements/{id}/breakdown:
+    get:
+      summary: 정산 breakdown 조회 (Admin)
+      operationId: adminGetSettlementBreakdown
+      tags: [Admin - Settlement]
+      security:
+        - adminJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Breakdown 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementBreakdown'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1521,6 +1581,102 @@ components:
         created_at:
           type: string
           format: date-time
+
+    SettlementBreakdownItem:
+      type: object
+      required: [id, code, title, category, amount, created_at]
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+          description: 항목 코드 (BASE_MIN, GRADE_BONUS, TRANSPORT 등)
+        title:
+          type: string
+          description: 표시명
+        category:
+          type: string
+          enum: [MIN, BONUS, DEDUCTION, LOGISTICS, OTHER]
+        amount:
+          type: integer
+          description: 금액 (KRW, 음수 허용)
+        quantity:
+          type: number
+          nullable: true
+        unit:
+          type: string
+          nullable: true
+        unit_price:
+          type: integer
+          nullable: true
+        evidence_ref:
+          type: string
+          nullable: true
+        note:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    SettlementBreakdown:
+      type: object
+      required: [settlement_id, target_type, target_id, status, amount_total, items, summary, consistency]
+      properties:
+        settlement_id:
+          type: string
+          format: uuid
+        target_type:
+          $ref: '#/components/schemas/TargetType'
+        target_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/SettlementStatus'
+        amount_min:
+          type: number
+          nullable: true
+        amount_bonus:
+          type: number
+          nullable: true
+        amount_total:
+          type: number
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettlementBreakdownItem'
+        summary:
+          type: object
+          properties:
+            min:
+              type: integer
+            bonus:
+              type: integer
+            deduction:
+              type: integer
+            other:
+              type: integer
+            total:
+              type: integer
+        consistency:
+          type: object
+          properties:
+            rule:
+              type: string
+              description: 'Fixed rule: amount_min=sum(MIN); amount_bonus=sum(NON_MIN); amount_total=sum(ALL)'
+            ok:
+              type: boolean
+              description: 'true only when all 3 sub-checks pass (min_ok && bonus_ok && total_ok)'
+            details:
+              type: object
+              description: 'Optional detailed sub-check results'
+              properties:
+                min_ok:
+                  type: boolean
+                bonus_ok:
+                  type: boolean
+                total_ok:
+                  type: boolean
 
     Settlement:
       type: object

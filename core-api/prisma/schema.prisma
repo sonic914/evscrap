@@ -170,8 +170,35 @@ model Settlement {
     createdAt   DateTime @default(now()) @map("created_at")
     updatedAt   DateTime @updatedAt @map("updated_at")
 
+    // Relations
+    breakdownItems SettlementBreakdownItem[]
+
     @@index([status])
     @@map("settlements")
+}
+
+// ==================== Settlement Breakdown Items ====================
+
+model SettlementBreakdownItem {
+    id           String   @id @default(cuid())
+    settlementId String   @map("settlement_id")
+    settlement   Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+    code         String   // BASE_MIN, BONUS_GRADE_A, TRANSPORT, MOTOR_PREMIUM 등
+    title        String   // 표시명
+    category     String   // MIN, BONUS, DEDUCTION, LOGISTICS, OTHER
+    amount       Int      // KRW, 음수 허용(차감)
+    quantity     Decimal? @db.Decimal(10, 4) // 선택
+    unit         String?  // kg, pcs 등
+    unitPrice    Int?     @map("unit_price") // 선택
+    evidenceRef  String?  @map("evidence_ref") // evidence_id 또는 external ref
+    note         String?  // 자유 메모
+
+    createdAt    DateTime @default(now()) @map("created_at")
+
+    @@index([settlementId, category])
+    @@unique([settlementId, code])
+    @@map("settlement_breakdown_items")
 }
 
 // ==================== Idempotency Records ====================

@@ -212,6 +212,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/user/v1/{targetType}/{targetId}/settlement/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 정산 항목별 breakdown 조회
+         * @description 정산의 세부 항목(breakdown items)을 조회한다.
+         *     정합성 검증 결과(consistency)도 포함된다.
+         */
+        get: operations["getSettlementBreakdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/v1/events/{eventId}/anchor": {
         parameters: {
             query?: never;
@@ -340,6 +361,23 @@ export interface paths {
         };
         /** 정산 상세 조회 */
         get: operations["getSettlementById"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/v1/settlements/{id}/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 정산 breakdown 조회 (Admin) */
+        get: operations["adminGetSettlementBreakdown"];
         put?: never;
         post?: never;
         delete?: never;
@@ -767,6 +805,55 @@ export interface components {
             };
             /** Format: date-time */
             created_at: string;
+        };
+        SettlementBreakdownItem: {
+            id: string;
+            /** @description 항목 코드 (BASE_MIN, GRADE_BONUS, TRANSPORT 등) */
+            code: string;
+            /** @description 표시명 */
+            title: string;
+            /** @enum {string} */
+            category: "MIN" | "BONUS" | "DEDUCTION" | "LOGISTICS" | "OTHER";
+            /** @description 금액 (KRW, 음수 허용) */
+            amount: number;
+            quantity?: number | null;
+            unit?: string | null;
+            unit_price?: number | null;
+            evidence_ref?: string | null;
+            note?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        SettlementBreakdown: {
+            /** Format: uuid */
+            settlement_id: string;
+            target_type: components["schemas"]["TargetType"];
+            /** Format: uuid */
+            target_id: string;
+            status: components["schemas"]["SettlementStatus"];
+            amount_min?: number | null;
+            amount_bonus?: number | null;
+            amount_total: number;
+            items: components["schemas"]["SettlementBreakdownItem"][];
+            summary: {
+                min?: number;
+                bonus?: number;
+                deduction?: number;
+                other?: number;
+                total?: number;
+            };
+            consistency: {
+                /** @description Fixed rule: amount_min=sum(MIN); amount_bonus=sum(NON_MIN); amount_total=sum(ALL) */
+                rule?: string;
+                /** @description true only when all 3 sub-checks pass (min_ok && bonus_ok && total_ok) */
+                ok?: boolean;
+                /** @description Optional detailed sub-check results */
+                details?: {
+                    min_ok?: boolean;
+                    bonus_ok?: boolean;
+                    total_ok?: boolean;
+                };
+            };
         };
         Settlement: {
             /** Format: uuid */
@@ -1299,6 +1386,31 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    getSettlementBreakdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                targetType: components["schemas"]["TargetType"];
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Breakdown 조회 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettlementBreakdown"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     getAnchorStatus: {
         parameters: {
             query?: never;
@@ -1496,6 +1608,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Settlement"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminGetSettlementBreakdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Breakdown 조회 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettlementBreakdown"];
                 };
             };
             401: components["responses"]["Unauthorized"];

@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
 import { toSnakeCaseKeys, errorResponse, ErrorCode } from '../utils/response';
+import { logger } from '../utils/logger';
+import { buildBreakdownResponse } from './settlement-controller';
 
 export const listSettlements = async (req: Request, res: Response) => {
     try {
@@ -139,5 +141,29 @@ export const commitSettlement = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error committing settlement:', error);
         return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to commit settlement');
+    }
+};
+
+/**
+ * GET /admin/v1/settlements/:id/breakdown
+ * Admin: 정산 breakdown 항목 조회
+ */
+export const getBreakdown = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        const settlement = await prisma.settlement.findUnique({
+            where: { id },
+            include: { breakdownItems: { orderBy: { createdAt: 'asc' } } },
+        });
+
+        if (!settlement) {
+            return errorResponse(res, 404, ErrorCode.RESOURCE_NOT_FOUND, 'Settlement not found');
+        }
+
+        return res.json(buildBreakdownResponse(settlement, settlement.breakdownItems));
+    } catch (error) {
+        console.error('Error getting admin breakdown:', error);
+        return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to get breakdown');
     }
 };

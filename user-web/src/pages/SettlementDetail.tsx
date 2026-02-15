@@ -17,6 +17,43 @@ interface Settlement {
   updated_at?: string;
 }
 
+interface BreakdownItem {
+  id: string;
+  code: string;
+  title: string;
+  category: string;
+  amount: number;
+  quantity?: number | null;
+  unit?: string | null;
+  unit_price?: number | null;
+  evidence_ref?: string | null;
+  note?: string | null;
+  created_at: string;
+}
+
+interface BreakdownData {
+  settlement_id: string;
+  items: BreakdownItem[];
+  summary: { min: number; bonus: number; deduction: number; other: number; total: number };
+  consistency: { rule: string; ok: boolean };
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  MIN: '최소 보장',
+  BONUS: '보너스',
+  DEDUCTION: '차감',
+  LOGISTICS: '물류비',
+  OTHER: '기타',
+};
+
+const CATEGORY_COLORS: Record<string, string> = {
+  MIN: '#17a2b8',
+  BONUS: '#28a745',
+  DEDUCTION: '#dc3545',
+  LOGISTICS: '#fd7e14',
+  OTHER: '#6c757d',
+};
+
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: '#6c757d',
   READY_FOR_APPROVAL: '#fd7e14',
@@ -35,6 +72,7 @@ export default function SettlementDetailPage() {
   const navigate = useNavigate();
   const { targetType, targetId } = useParams<{ targetType: string; targetId: string }>();
   const [data, setData] = useState<Settlement | null>(null);
+  const [breakdown, setBreakdown] = useState<BreakdownData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -56,6 +94,16 @@ export default function SettlementDetailPage() {
       if (response?.status === 404) { setError('정산 정보가 아직 없습니다.'); setData(null); return; }
       if (apiErr || !d) { setError(`조회 실패: ${JSON.stringify(apiErr)}`); return; }
       setData(d as unknown as Settlement);
+      // breakdown 로드
+      try {
+        const bdRes = await api.GET(
+          '/user/v1/{targetType}/{targetId}/settlement/breakdown' as any,
+          { params: { path: { targetType: targetType as 'CASE' | 'LOT', targetId } } },
+        );
+        if (bdRes.response?.ok && bdRes.data) {
+          setBreakdown(bdRes.data as unknown as BreakdownData);
+        }
+      } catch { /* breakdown 실패해도 settlement은 표시 */ }
     } catch (err) {
       setError(err instanceof Error ? err.message : '네트워크 오류');
     } finally {
@@ -129,30 +177,88 @@ export default function SettlementDetailPage() {
             </div>
           )}
 
-          {/* Breakdown (미지원) */}
+          {/* Breakdown 상세 항목 */}
           <div style={{ padding: 12, border: '1px solid #ddd', borderRadius: 8, marginBottom: 16 }}>
             <h3>📊 정산 구성</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                {data.amount_min != null && (
-                  <tr style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: 8, color: '#666' }}>최소 보장 금액</td>
-                    <td style={{ padding: 8, textAlign: 'right' }}>{formatAmount(data.amount_min)}</td>
-                  </tr>
+            {breakdown && breakdown.items.length > 0 ? (
+              <>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #ddd', textAlign: 'left' }}>
+                      <th style={{ padding: 8 }}>항목</th>
+                      <th style={{ padding: 8, textAlign: 'center' }}>분류</th>
+                      <th style={{ padding: 8, textAlign: 'right' }}>금액</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {breakdown.items.map(item => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
+                        <td style={{ padding: 8 }}>
+                          <div>{item.title}</div>
+                          {item.note && <div style={{ fontSize: 11, color: '#999' }}>{item.note}</div>}
+                          {item.quantity != null && item.unit && (
+                            <div style={{ fontSize: 11, color: '#888' }}>
+                              {item.quantity} {item.unit}
+                              {item.unit_price != null && ` × ${formatAmount(item.unit_price)}`}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: 8, textAlign: 'center' }}>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: 8, fontSize: 11, color: '#fff',
+                            background: CATEGORY_COLORS[item.category] || '#999',
+                          }}>
+                            {CATEGORY_LABELS[item.category] || item.category}
+                          </span>
+                        </td>
+                        <td style={{ padding: 8, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: item.amount < 0 ? '#dc3545' : undefined }}>
+                          {formatAmount(item.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: '2px solid #333', fontWeight: 'bold' }}>
+                      <td colSpan={2} style={{ padding: 8 }}>합계</td>
+                      <td style={{ padding: 8, textAlign: 'right' }}>{formatAmount(breakdown.summary.total)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+                {/* 카테고리 요약 */}
+                <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 12, flexWrap: 'wrap' }}>
+                  {breakdown.summary.min > 0 && <span>최소보장: {formatAmount(breakdown.summary.min)}</span>}
+                  {breakdown.summary.bonus > 0 && <span style={{ color: '#28a745' }}>보너스: +{formatAmount(breakdown.summary.bonus)}</span>}
+                  {breakdown.summary.deduction < 0 && <span style={{ color: '#dc3545' }}>차감: {formatAmount(breakdown.summary.deduction)}</span>}
+                </div>
+                {/* 정합성 표시 */}
+                {!breakdown.consistency.ok && (
+                  <div style={{ marginTop: 8, padding: 8, background: '#fff3cd', borderRadius: 4, fontSize: 12, color: '#856404' }}>
+                    ⚠️ 항목 합계({formatAmount(breakdown.summary.total)})가 정산 총액({formatAmount(data.amount_total)})과 일치하지 않습니다.
+                  </div>
                 )}
-                {data.amount_bonus != null && (
-                  <tr style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: 8, color: '#666' }}>보너스</td>
-                    <td style={{ padding: 8, textAlign: 'right' }}>{formatAmount(data.amount_bonus)}</td>
+              </>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  {data.amount_min != null && (
+                    <tr style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: 8, color: '#666' }}>최소 보장 금액</td>
+                      <td style={{ padding: 8, textAlign: 'right' }}>{formatAmount(data.amount_min)}</td>
+                    </tr>
+                  )}
+                  {data.amount_bonus != null && (
+                    <tr style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: 8, color: '#666' }}>보너스</td>
+                      <td style={{ padding: 8, textAlign: 'right' }}>{formatAmount(data.amount_bonus)}</td>
+                    </tr>
+                  )}
+                  <tr style={{ borderTop: '2px solid #333', fontWeight: 'bold' }}>
+                    <td style={{ padding: 8 }}>합계</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>{formatAmount(data.amount_total)}</td>
                   </tr>
-                )}
-                <tr style={{ borderTop: '2px solid #333', fontWeight: 'bold' }}>
-                  <td style={{ padding: 8 }}>합계</td>
-                  <td style={{ padding: 8, textAlign: 'right' }}>{formatAmount(data.amount_total)}</td>
-                </tr>
-              </tbody>
-            </table>
-            <p style={{ fontSize: 11, color: '#999', marginTop: 4 }}>상세 항목 breakdown은 추후 지원 예정</p>
+                </tbody>
+              </table>
+            )}
           </div>
 
           {/* 읽기 전용 안내 */}
