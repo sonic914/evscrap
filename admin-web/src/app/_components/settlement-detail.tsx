@@ -1,9 +1,8 @@
-export function generateStaticParams() { return []; }
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import NavBar from '../../NavBar';
+import NavBar from '../NavBar';
 import { useAuthGuard, handle401 } from '@/lib/useAuthGuard';
 import { getAdminApi, makeIdempotencyKey } from '@/lib/api';
 import { mapApiError, type ApiErrorInfo } from '@/lib/errors';
@@ -21,7 +20,7 @@ function formatAmount(n?: number) {
   return n.toLocaleString('ko-KR') + '원';
 }
 
-export default function SettlementDetailPage() {
+export default function SettlementDetailClient() {
   const router = useRouter();
   const params = useParams();
   const settlementId = params.id as string;
@@ -128,13 +127,10 @@ export default function SettlementDetailPage() {
         </div>
         <h1>정산 상세</h1>
 
-        {/* 🚨 ANCHOR_NOT_VERIFIED 게이트 경고 */}
         {error?.isAnchorGate && (
           <div className="alert alert-gate">
             🚫 {error.message}
-            <div style={{ marginTop: 8 }}>
-              <button onClick={fetchSettlement}>🔄 새로고침</button>
-            </div>
+            <div style={{ marginTop: 8 }}><button onClick={fetchSettlement}>🔄 새로고침</button></div>
           </div>
         )}
         {error && !error.isAnchorGate && <div className="alert alert-error">{error.message}</div>}
@@ -161,7 +157,6 @@ export default function SettlementDetailPage() {
               )}
             </div>
 
-            {/* Approve 버튼 */}
             {(settlement.status === 'DRAFT' || settlement.status === 'READY_FOR_APPROVAL') && (
               <div className="actions">
                 <button className="primary" onClick={handleApprove} disabled={actionLoading}>
@@ -170,18 +165,12 @@ export default function SettlementDetailPage() {
               </div>
             )}
 
-            {/* Commit 영역 */}
             {settlement.status === 'APPROVED' && (
               <div className="detail-card" style={{ marginTop: 16 }}>
                 <h2>정산 확정 (Commit)</h2>
                 <div className="form-group" style={{ marginTop: 8 }}>
                   <label>Receipt Hash (필수)</label>
-                  <input
-                    type="text"
-                    value={receiptHash}
-                    onChange={(e) => setReceiptHash(e.target.value)}
-                    placeholder="영수증 해시값을 입력하세요"
-                  />
+                  <input type="text" value={receiptHash} onChange={(e) => setReceiptHash(e.target.value)} placeholder="영수증 해시값을 입력하세요" />
                 </div>
                 <button className="danger" onClick={handleCommit} disabled={actionLoading}>
                   {actionLoading ? '처리 중...' : '🔒 확정 (Commit)'}
@@ -190,9 +179,7 @@ export default function SettlementDetailPage() {
             )}
 
             {settlement.status === 'COMMITTED' && (
-              <div className="alert alert-success" style={{ marginTop: 16 }}>
-                이 정산은 이미 확정(COMMITTED) 되었습니다.
-              </div>
+              <div className="alert alert-success" style={{ marginTop: 16 }}>이 정산은 이미 확정(COMMITTED) 되었습니다.</div>
             )}
           </>
         ) : (

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import DynamicPageRouter from './_components/DynamicPageRouter';
 
 export const metadata: Metadata = {
   title: 'evscrap 관리자',
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        <DynamicPageRouter>{children}</DynamicPageRouter>
+      </body>
     </html>
   );
 }

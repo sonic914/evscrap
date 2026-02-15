@@ -1,9 +1,8 @@
-export function generateStaticParams() { return []; }
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import NavBar from '../../NavBar';
+import NavBar from '../NavBar';
 import { useAuthGuard, handle401 } from '@/lib/useAuthGuard';
 import { getAdminApi, makeIdempotencyKey } from '@/lib/api';
 import { mapApiError } from '@/lib/errors';
@@ -15,7 +14,7 @@ function statusBadge(status: string) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{status}</span>;
 }
 
-export default function TenantDetailPage() {
+export default function TenantDetailClient() {
   const router = useRouter();
   const params = useParams();
   const tenantId = params.tenantId as string;

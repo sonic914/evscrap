@@ -115,4 +115,12 @@ jobs:
           fi
           STATUS2=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login/")
           echo "Login: HTTP $STATUS2"
+          if [ "$STATUS2" != "200" ] && [ "$STATUS2" != "304" ]; then
+            echo "❌ Login smoke failed"; exit 1
+          fi
+          STATUS3=$(curl -s -o /dev/null -w "%{http_code}" "$URL/tenants/abc")
+          echo "SPA fallback (/tenants/abc): HTTP $STATUS3"
+          if [ "$STATUS3" != "200" ] && [ "$STATUS3" != "304" ]; then
+            echo "❌ SPA fallback smoke failed"; exit 1
+          fi
           echo "✅ Admin Web deployed: $URL"
