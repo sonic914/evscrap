@@ -1,0 +1,120 @@
+name: User Web Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "user-web/**"
+      - "shared/api-client/**"
+      - "infra/lib/web-hosting-stack.ts"
+      - ".github/workflows/user-web-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  STACK_NAME: EvscrapWebHostingStack
+  BACKEND_STACK_NAME: EvscrapStack
+
+jobs:
+  deploy:
+    name: Build & Deploy User Web
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::090733632671:role/GitHubActions-evscrap-deploy-dev
+          aws-region: ap-northeast-2
+          role-session-name: user-web-deploy
+
+      # ---- Resolve CDK Outputs ----
+      - name: Get Web Hosting Outputs
+        id: web
+        run: |
+          BUCKET=$(aws cloudformation describe-stacks --stack-name $STACK_NAME \
+            --query 'Stacks[0].Outputs[?OutputKey==`UserWebBucketName`].OutputValue' --output text)
+          DIST_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME \
+            --query 'Stacks[0].Outputs[?OutputKey==`UserWebDistributionId`].OutputValue' --output text)
+          URL=$(aws cloudformation describe-stacks --stack-name $STACK_NAME \
+            --query 'Stacks[0].Outputs[?OutputKey==`UserWebUrl`].OutputValue' --output text)
+          echo "BUCKET=$BUCKET" >> $GITHUB_OUTPUT
+          echo "DIST_ID=$DIST_ID" >> $GITHUB_OUTPUT
+          echo "URL=$URL" >> $GITHUB_OUTPUT
+          echo "User bucket: $BUCKET, dist: $DIST_ID"
+
+      - name: Get Backend Outputs
+        id: backend
+        run: |
+          API_URL=$(aws cloudformation describe-stacks --stack-name $BACKEND_STACK_NAME \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text)
+          USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name $BACKEND_STACK_NAME \
+            --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text)
+          USER_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name $BACKEND_STACK_NAME \
+            --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text)
+          echo "API_URL=$API_URL" >> $GITHUB_OUTPUT
+          echo "USER_POOL_ID=$USER_POOL_ID" >> $GITHUB_OUTPUT
+          echo "USER_CLIENT_ID=$USER_CLIENT_ID" >> $GITHUB_OUTPUT
+
+      # ---- Build api-client ----
+      - name: Install & build api-client
+        working-directory: ./shared/api-client
+        run: npm ci && npm run build
+
+      # ---- Build user-web ----
+      - name: Install user-web
+        working-directory: ./user-web
+        run: npm install
+
+      - name: Build user-web
+        working-directory: ./user-web
+        env:
+          VITE_API_BASE: ${{ steps.backend.outputs.API_URL }}
+          VITE_COGNITO_USER_POOL_ID_USER: ${{ steps.backend.outputs.USER_POOL_ID }}
+          VITE_COGNITO_CLIENT_ID_USER: ${{ steps.backend.outputs.USER_CLIENT_ID }}
+          VITE_AWS_REGION: ap-northeast-2
+        run: npm run build
+
+      # ---- Deploy to S3 ----
+      - name: Upload to S3
+        run: |
+          aws s3 sync user-web/dist/ s3://${{ steps.web.outputs.BUCKET }} --delete
+          echo "✅ S3 upload complete"
+
+      # ---- CloudFront Invalidation ----
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.web.outputs.DIST_ID }} \
+            --paths "/*" \
+            --query 'Invalidation.Id' --output text
+          echo "✅ CloudFront invalidation created"
+
+      # ---- Smoke Test ----
+      - name: Smoke Test
+        run: |
+          URL="${{ steps.web.outputs.URL }}"
+          echo "Testing: $URL"
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/")
+          echo "Root: HTTP $STATUS"
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "304" ]; then
+            echo "❌ Root smoke failed"; exit 1
+          fi
+          STATUS2=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login")
+          echo "Login: HTTP $STATUS2"
+          STATUS3=$(curl -s -o /dev/null -w "%{http_code}" "$URL/cases/test-id")
+          echo "SPA fallback: HTTP $STATUS3"
+          echo "✅ User Web deployed: $URL"

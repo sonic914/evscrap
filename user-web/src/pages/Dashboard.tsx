@@ -48,6 +48,12 @@ export default function DashboardPage() {
             <p style={{ color: '#666', fontSize: 14 }}>폐차 케이스 등록/조회</p>
           </div>
         </Link>
+        <Link to="/settlements" style={{ textDecoration: 'none' }}>
+          <div style={{ padding: '16px 24px', border: '1px solid #ddd', borderRadius: 8, cursor: 'pointer' }}>
+            <h2>💰 정산</h2>
+            <p style={{ color: '#666', fontSize: 14 }}>케이스별 정산 조회</p>
+          </div>
+        </Link>
       </div>
 
       <div style={{ marginTop: 32 }}>

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
 import { EvscrapStack } from '../lib/evscrap-stack';
+import { WebHostingStack } from '../lib/web-hosting-stack';
 
 const app = new cdk.App();
 
@@ -17,6 +18,16 @@ new EvscrapStack(app, 'EvscrapStack', {
     Project: 'evscrap',
     Environment: 'dev',
     Phase: '0-A',
+  },
+});
+
+new WebHostingStack(app, 'EvscrapWebHostingStack', {
+  env,
+  description: 'evscrap 정적 웹 호스팅 (admin-web + user-web)',
+  tags: {
+    Project: 'evscrap',
+    Environment: 'dev',
+    Phase: '2',
   },
 });
 
