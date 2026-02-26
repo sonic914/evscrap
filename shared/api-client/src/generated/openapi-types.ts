@@ -233,6 +233,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/user/v1/settlements/{settlementId}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 사용자 정산 확인(ACK)
+         * @description COMMITTED 상태의 정산에 대해 사용자가 확인(ACK)합니다. 멱등 - 동일 사용자 재요청 시 200.
+         */
+        post: operations["ackSettlement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/v1/events/{eventId}/anchor": {
         parameters: {
             query?: never;
@@ -855,6 +875,14 @@ export interface components {
                 };
             };
         };
+        SettlementAckResponse: {
+            /** Format: uuid */
+            settlement_id: string;
+            acked: boolean;
+            /** Format: date-time */
+            acked_at: string;
+            ack_user_sub?: string;
+        };
         Settlement: {
             /** Format: uuid */
             settlement_id: string;
@@ -869,6 +897,13 @@ export interface components {
             /** Format: double */
             amount_total: number;
             receipt_hash?: string;
+            /** @description 사용자가 정산을 확인(ACK)했는지 여부 */
+            acked?: boolean;
+            /**
+             * Format: date-time
+             * @description ACK 시각
+             */
+            acked_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -1409,6 +1444,64 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    ackSettlement: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                settlementId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description 이미 ACK됨 (멱등) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettlementAckResponse"];
+                };
+            };
+            /** @description ACK 생성 성공 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettlementAckResponse"];
+                };
+            };
+            /** @description Idempotency-Key 헤더 누락 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 접근 권한 없음 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description COMMITTED가 아닌 상태 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getAnchorStatus: {

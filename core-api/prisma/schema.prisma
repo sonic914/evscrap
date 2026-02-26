@@ -84,8 +84,8 @@ model Evidence {
     capturedAt DateTime? @map("captured_at")
     uploadedAt DateTime  @default(now()) @map("uploaded_at")
     tenantId   String    @map("tenant_id")
-    targetType String?   @map("target_type") // CASE, LOT 등 (nullable=하위호환)
-    targetId   String?   @map("target_id") // 연결 대상 ID (nullable=하위호환)
+    targetType String?   @map("target_type") // CASE, LOT λ± (nullable=νμνΈν)
+    targetId   String?   @map("target_id") // μ°κ²° λμ ID (nullable=νμνΈν)
 
     // Relations
     tenant Tenant @relation(fields: [tenantId], references: [id])
@@ -172,9 +172,28 @@ model Settlement {
 
     // Relations
     breakdownItems SettlementBreakdownItem[]
+    acks           SettlementAck[]
 
     @@index([status])
     @@map("settlements")
+}
+
+// ==================== Settlement Acks ====================
+
+model SettlementAck {
+    id             String   @id @default(cuid())
+    settlementId   String   @map("settlement_id")
+    userSub        String   @map("user_sub")
+    ackedAt        DateTime @default(now()) @map("acked_at")
+    idempotencyKey String?  @map("idempotency_key")
+    ip             String?
+    userAgent      String?  @map("user_agent")
+
+    settlement Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+    @@unique([settlementId, userSub])
+    @@index([settlementId, ackedAt])
+    @@map("settlement_acks")
 }
 
 // ==================== Settlement Breakdown Items ====================
@@ -184,15 +203,15 @@ model SettlementBreakdownItem {
     settlementId String   @map("settlement_id")
     settlement   Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
 
-    code         String   // BASE_MIN, BONUS_GRADE_A, TRANSPORT, MOTOR_PREMIUM 등
-    title        String   // 표시명
+    code         String   // BASE_MIN, BONUS_GRADE_A, TRANSPORT, MOTOR_PREMIUM λ±
+    title        String   // νμλͺ
     category     String   // MIN, BONUS, DEDUCTION, LOGISTICS, OTHER
-    amount       Int      // KRW, 음수 허용(차감)
-    quantity     Decimal? @db.Decimal(10, 4) // 선택
-    unit         String?  // kg, pcs 등
-    unitPrice    Int?     @map("unit_price") // 선택
-    evidenceRef  String?  @map("evidence_ref") // evidence_id 또는 external ref
-    note         String?  // 자유 메모
+    amount       Int      // KRW, μμ νμ©(μ°¨κ°)
+    quantity     Decimal? @db.Decimal(10, 4) // μ ν
+    unit         String?  // kg, pcs λ±
+    unitPrice    Int?     @map("unit_price") // μ ν
+    evidenceRef  String?  @map("evidence_ref") // evidence_id λλ external ref
+    note         String?  // μμ  λ©λͺ¨
 
     createdAt    DateTime @default(now()) @map("created_at")
 
@@ -206,16 +225,16 @@ model SettlementBreakdownItem {
 model IdempotencyRecord {
     id             String    @id @default(uuid())
     scopeType      String    @map("scope_type") // USER, ADMIN, TENANT
-    scopeId        String    @map("scope_id") // tenant_id, user_id 등
+    scopeId        String    @map("scope_id") // tenant_id, user_id λ±
     endpoint       String // "POST /user/v1/tenants/submit"
     idempotencyKey String    @map("idempotency_key")
     requestHash    String?   @map("request_hash") // SHA-256(body)
     status         String    @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
     responseStatus Int?      @map("response_status") // HTTP status code
-    responseBody   Json?     @map("response_body") // 재응답용
+    responseBody   Json?     @map("response_body") // μ¬μλ΅μ©
     createdAt      DateTime  @default(now()) @map("created_at")
     updatedAt      DateTime  @updatedAt @map("updated_at")
-    expiresAt      DateTime? @map("expires_at") // TTL 정리용
+    expiresAt      DateTime? @map("expires_at") // TTL μ λ¦¬μ©
 
     @@unique([scopeType, scopeId, endpoint, idempotencyKey])
     @@map("idempotency_records")

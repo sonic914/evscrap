@@ -13,6 +13,8 @@ interface Settlement {
   amount_bonus?: number;
   amount_total: number;
   receipt_hash?: string;
+  acked?: boolean;
+  acked_at?: string | null;
   created_at: string;
   updated_at?: string;
 }
@@ -75,6 +77,8 @@ export default function SettlementDetailPage() {
   const [breakdown, setBreakdown] = useState<BreakdownData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [acking, setAcking] = useState(false);
+  const [ackError, setAckError] = useState('');
 
   useEffect(() => {
     if (!isLoggedIn()) navigate('/login');
@@ -112,6 +116,38 @@ export default function SettlementDetailPage() {
   }, [targetType, targetId, navigate]);
 
   useEffect(() => { fetchSettlement(); }, [fetchSettlement]);
+
+  const handleAck = useCallback(async () => {
+    if (!data?.settlement_id) return;
+    setAcking(true);
+    setAckError('');
+    try {
+      const baseUrl = import.meta.env.VITE_API_BASE || '';
+      const token = localStorage.getItem('id_token') || '';
+      const idempotencyKey = crypto.randomUUID();
+      const res = await fetch(`${baseUrl}/user/v1/settlements/${data.settlement_id}/ack`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: '{}',
+      });
+      if (res.status === 401) { handle401(401, navigate); return; }
+      if (res.ok) {
+        const body = await res.json();
+        setData(prev => prev ? { ...prev, acked: true, acked_at: body.acked_at } : prev);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setAckError(body.message || `ACK 실패 (${res.status})`);
+      }
+    } catch (err) {
+      setAckError(err instanceof Error ? err.message : 'ACK 요청 실패');
+    } finally {
+      setAcking(false);
+    }
+  }, [data?.settlement_id, navigate]);
 
   const isGateBlocking = data && (data.status === 'DRAFT' || data.status === 'READY_FOR_APPROVAL');
 
@@ -261,10 +297,42 @@ export default function SettlementDetailPage() {
             )}
           </div>
 
-          {/* 읽기 전용 안내 */}
-          <div style={{ padding: 12, background: '#e8f4fd', borderRadius: 8, fontSize: 13, color: '#555' }}>
-            ℹ️ 현재 사용자는 조회만 가능합니다. 승인/커밋은 관리자가 처리합니다.
-          </div>
+          {/* ACK 영역 — COMMITTED && 아직 ACK 안 한 경우 */}
+          {data.status === 'COMMITTED' && !data.acked && (
+            <div style={{ padding: 16, border: '2px solid #007bff', borderRadius: 8, background: '#e7f1ff', marginBottom: 16, textAlign: 'center' }}>
+              <p style={{ margin: '0 0 12px', fontSize: 14, color: '#333' }}>
+                정산 내용을 확인하셨나요? 아래 버튼을 눌러 확인해 주세요.
+              </p>
+              <button
+                onClick={handleAck}
+                disabled={acking}
+                style={{
+                  padding: '10px 32px', fontSize: 16, fontWeight: 'bold',
+                  background: acking ? '#999' : '#007bff', color: '#fff',
+                  border: 'none', borderRadius: 8, cursor: acking ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {acking ? '처리 중...' : '✅ 확인했어요'}
+              </button>
+              {ackError && (
+                <div style={{ marginTop: 8, color: '#dc3545', fontSize: 13 }}>❌ {ackError}</div>
+              )}
+            </div>
+          )}
+
+          {/* ACK 완료 표시 */}
+          {data.acked && (
+            <div style={{ padding: 12, border: '1px solid #28a745', borderRadius: 8, background: '#d4edda', marginBottom: 16 }}>
+              ✅ 확인 완료 ({data.acked_at ? new Date(data.acked_at).toLocaleString('ko') : ''})
+            </div>
+          )}
+
+          {/* COMMITTED가 아닌 상태 안내 */}
+          {data.status !== 'COMMITTED' && (
+            <div style={{ padding: 12, background: '#e8f4fd', borderRadius: 8, fontSize: 13, color: '#555' }}>
+              ℹ️ 승인/커밋은 관리자가 처리합니다. 정산이 확정(COMMITTED)되면 확인 버튼이 표시됩니다.
+            </div>
+          )}
         </>
       )}
     </div>

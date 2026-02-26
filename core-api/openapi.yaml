@@ -513,6 +513,52 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /user/v1/settlements/{settlementId}/ack:
+    post:
+      tags: [Settlement]
+      operationId: ackSettlement
+      summary: 사용자 정산 확인(ACK)
+      description: COMMITTED 상태의 정산에 대해 사용자가 확인(ACK)합니다. 멱등 - 동일 사용자 재요청 시 200.
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - scrapyardJwt: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: ACK 생성 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementAckResponse'
+        '200':
+          description: 이미 ACK됨 (멱등)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementAckResponse'
+        '400':
+          description: Idempotency-Key 헤더 누락
+        '403':
+          description: 접근 권한 없음
+        '409':
+          description: COMMITTED가 아닌 상태
+
   /user/v1/events/{eventId}/anchor:
     get:
       summary: 앵커 상태 조회
@@ -1678,6 +1724,21 @@ components:
                 total_ok:
                   type: boolean
 
+    SettlementAckResponse:
+      type: object
+      required: [settlement_id, acked, acked_at]
+      properties:
+        settlement_id:
+          type: string
+          format: uuid
+        acked:
+          type: boolean
+        acked_at:
+          type: string
+          format: date-time
+        ack_user_sub:
+          type: string
+
     Settlement:
       type: object
       required: [settlement_id, target_type, target_id, status, amount_total, created_at]
@@ -1703,6 +1764,14 @@ components:
           format: double
         receipt_hash:
           type: string
+        acked:
+          type: boolean
+          description: 사용자가 정산을 확인(ACK)했는지 여부
+        acked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: ACK 시각
         created_at:
           type: string
           format: date-time

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { idempotency } from '../middleware/idempotency';
+import { requireIdempotencyKey } from '../middleware/require-idempotency-key';
 import * as tenantController from '../controllers/tenant-controller';
 import * as caseController from '../controllers/case-controller';
 import * as lotController from '../controllers/lot-controller';
@@ -29,6 +30,7 @@ router.get('/evidence/:evidenceId/download-url', evidenceController.getDownloadU
 
 // Settlement list (정적 경로, 동적 라우트보다 먼저)
 router.get('/settlements', settlementController.listSettlements);
+router.post('/settlements/:settlementId/ack', requireIdempotencyKey, idempotency, settlementController.ackSettlement);
 
 // Evidence list by target
 router.get('/:targetType/:targetId/evidence', evidenceController.listEvidenceByTarget);

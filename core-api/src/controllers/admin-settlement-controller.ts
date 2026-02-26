@@ -4,6 +4,18 @@ import { toSnakeCaseKeys, errorResponse, ErrorCode } from '../utils/response';
 import { logger } from '../utils/logger';
 import { buildBreakdownResponse } from './settlement-controller';
 
+/** admin용 ack 정보 부착 헬퍼 (ack_user_sub 포함) */
+function attachAdminAckInfo(settlement: any) {
+    const acks: any[] = settlement.acks || [];
+    const firstAck = acks[0];
+    const result = toSnakeCaseKeys(settlement);
+    result.acked = !!firstAck;
+    result.acked_at = firstAck ? firstAck.ackedAt?.toISOString?.() || firstAck.ackedAt : null;
+    result.ack_user_sub = firstAck?.userSub || null;
+    delete result.acks;
+    return result;
+}
+
 export const listSettlements = async (req: Request, res: Response) => {
     try {
         const { status } = req.query;
@@ -11,9 +23,10 @@ export const listSettlements = async (req: Request, res: Response) => {
         
         const settlements = await prisma.settlement.findMany({
             where,
+            include: { acks: true },
             orderBy: { createdAt: 'desc' }
         });
-        return res.json({ settlements });
+        return res.json({ settlements: settlements.map(attachAdminAckInfo) });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'InternalServer' });
@@ -23,12 +36,15 @@ export const listSettlements = async (req: Request, res: Response) => {
 export const getSettlementById = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const settlement = await prisma.settlement.findUnique({ where: { id } });
+        const settlement = await prisma.settlement.findUnique({
+            where: { id },
+            include: { acks: true },
+        });
         
         if (!settlement) {
             return res.status(404).json({ error: 'NotFound' });
         }
-        return res.json(settlement);
+        return res.json(attachAdminAckInfo(settlement));
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'InternalServer' });

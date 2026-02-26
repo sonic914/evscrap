@@ -202,6 +202,26 @@ export default function SettlementDetailClient() {
               <div className="alert alert-success" style={{ marginTop: 16 }}>이 정산은 이미 확정(COMMITTED) 되었습니다.</div>
             )}
 
+            {/* 사용자 ACK 상태 표시 */}
+            <div className="detail-card" style={{ marginTop: 16 }}>
+              <h2>👤 사용자 확인 (ACK)</h2>
+              {(settlement as any).acked ? (
+                <div style={{ padding: 8, background: '#d4edda', borderRadius: 4, fontSize: 13, color: '#155724' }}>
+                  ✅ 사용자 확인 완료
+                  {(settlement as any).acked_at && (
+                    <span style={{ marginLeft: 8 }}>({new Date((settlement as any).acked_at).toLocaleString('ko')})</span>
+                  )}
+                  {(settlement as any).ack_user_sub && (
+                    <span style={{ marginLeft: 8, fontFamily: 'monospace', fontSize: 11 }}>user: {(settlement as any).ack_user_sub}</span>
+                  )}
+                </div>
+              ) : (
+                <div style={{ padding: 8, background: '#fff3cd', borderRadius: 4, fontSize: 13, color: '#856404' }}>
+                  ⏳ 사용자 미확인
+                </div>
+              )}
+            </div>
+
             {/* Breakdown 섹션 */}
             <div className="detail-card" style={{ marginTop: 16 }}>
               <h2>📊 정산 구성 (Breakdown)</h2>

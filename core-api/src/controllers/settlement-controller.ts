@@ -3,6 +3,21 @@ import prisma from '../prisma';
 import { toSnakeCaseKeys, errorResponse, ErrorCode } from '../utils/response';
 import { logger } from '../utils/logger';
 
+/** Settlement에 ack 정보를 부착하는 헬퍼 */
+function attachAckInfo(settlement: any, userSub?: string) {
+  const snaked = toSnakeCaseKeys(settlement);
+  const acks: any[] = settlement.acks || [];
+  // userSub이 주어지면 본인 ack만 확인, 아니면 첫 ack
+  const myAck = userSub
+    ? acks.find((a: any) => a.userSub === userSub)
+    : acks[0];
+  snaked.acked = !!myAck;
+  snaked.acked_at = myAck ? myAck.ackedAt?.toISOString?.() || myAck.ackedAt : null;
+  // acks 관계 키 제거 (응답 오염 방지)
+  delete snaked.acks;
+  return snaked;
+}
+
 /** 기본 breakdown 항목 자동 생성 (정산 생성 시) */
 function buildDefaultBreakdownItems(amountTotal: number, amountMin?: number | null, amountBonus?: number | null) {
   const items: Array<{ code: string; title: string; category: string; amount: number; note?: string }> = [];
@@ -127,7 +142,9 @@ export const listSettlements = async (req: Request, res: Response) => {
     const caseIds = cases.map(c => c.id);
     const lotIds = lots.map(l => l.id);
 
-    // target이 내 CASE 또는 LOT인 정산만
+    const userSub = req.user?.sub;
+
+    // target이 내 CASE 또는 LOT인 정산만 (ack 포함)
     const settlements = await prisma.settlement.findMany({
       where: {
         OR: [
@@ -135,11 +152,12 @@ export const listSettlements = async (req: Request, res: Response) => {
           { targetType: 'LOT', targetId: { in: lotIds } },
         ],
       },
+      include: { acks: true },
       orderBy: { updatedAt: 'desc' },
     });
 
     return res.json({
-      items: settlements.map(toSnakeCaseKeys),
+      items: settlements.map(s => attachAckInfo(s, userSub)),
       total: settlements.length,
     });
   } catch (error: any) {
@@ -251,18 +269,120 @@ export const getSettlement = async (req: Request, res: Response) => {
       }
     }
 
+    const userSub = req.user?.sub;
     const settlement = await prisma.settlement.findFirst({
       where: { targetType, targetId },
+      include: { acks: true },
     });
 
     if (!settlement) {
       return errorResponse(res, 404, ErrorCode.RESOURCE_NOT_FOUND, 'Settlement not found');
     }
 
-    return res.json(toSnakeCaseKeys(settlement));
+    return res.json(attachAckInfo(settlement, userSub));
   } catch (error: any) {
     console.error('Error getting settlement:', error);
     return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to get settlement');
+  }
+};
+
+/**
+ * POST /user/v1/settlements/:settlementId/ack
+ * 사용자 정산 확인(ACK)
+ */
+export const ackSettlement = async (req: Request, res: Response) => {
+  try {
+    const { settlementId } = req.params;
+    const tenantId = req.user?.tenantId;
+    const userSub = req.user?.sub;
+
+    if (!tenantId || !userSub) {
+      return errorResponse(res, 401, ErrorCode.UNAUTHORIZED, 'User context missing');
+    }
+
+    // A) Settlement 조회
+    const settlement = await prisma.settlement.findUnique({ where: { id: settlementId } });
+    if (!settlement) {
+      return errorResponse(res, 404, ErrorCode.RESOURCE_NOT_FOUND, 'Settlement not found');
+    }
+
+    // B) Tenant 격리: target의 tenantId 확인
+    let targetTenantId: string | null = null;
+    if (settlement.targetType === 'CASE') {
+      const kase = await prisma.case.findUnique({ where: { id: settlement.targetId }, select: { tenantId: true } });
+      targetTenantId = kase?.tenantId ?? null;
+    } else if (settlement.targetType === 'LOT') {
+      const lot = await prisma.lot.findUnique({ where: { id: settlement.targetId }, select: { tenantId: true } });
+      targetTenantId = lot?.tenantId ?? null;
+    }
+    if (!targetTenantId || targetTenantId !== tenantId) {
+      return errorResponse(res, 403, ErrorCode.FORBIDDEN, '이 정산에 대한 접근 권한이 없습니다');
+    }
+
+    // C) 상태 검증: COMMITTED만 ACK 가능
+    if (settlement.status !== 'COMMITTED') {
+      return errorResponse(res, 409, ErrorCode.INVALID_STATUS_TRANSITION,
+        `정산이 COMMITTED 상태일 때만 확인(ACK)할 수 있습니다. 현재 상태: ${settlement.status}`,
+        { current_status: settlement.status, required_status: 'COMMITTED' });
+    }
+
+    // D) 이미 ACK 존재하면 200 반환(멱등)
+    const existingAck = await prisma.settlementAck.findUnique({
+      where: { settlementId_userSub: { settlementId, userSub } },
+    });
+    if (existingAck) {
+      return res.status(200).json({
+        settlement_id: settlementId,
+        acked: true,
+        acked_at: existingAck.ackedAt.toISOString(),
+        ack_user_sub: existingAck.userSub,
+      });
+    }
+
+    // E) ACK 생성
+    const idempotencyKey = req.headers['idempotency-key'] as string | undefined;
+    const ip = req.headers['x-forwarded-for'] as string || req.socket?.remoteAddress || null;
+    const userAgent = req.headers['user-agent'] || null;
+
+    try {
+      const ack = await prisma.settlementAck.create({
+        data: {
+          settlementId,
+          userSub,
+          idempotencyKey: idempotencyKey || null,
+          ip: ip || null,
+          userAgent: userAgent || null,
+        },
+      });
+
+      logger.info('SETTLEMENT_ACK_CREATED', { settlement_id: settlementId, user_sub: userSub });
+
+      return res.status(201).json({
+        settlement_id: settlementId,
+        acked: true,
+        acked_at: ack.ackedAt.toISOString(),
+        ack_user_sub: ack.userSub,
+      });
+    } catch (err: any) {
+      // unique 충돌(race condition) → 재조회
+      if (err?.code === 'P2002') {
+        const raceAck = await prisma.settlementAck.findUnique({
+          where: { settlementId_userSub: { settlementId, userSub } },
+        });
+        if (raceAck) {
+          return res.status(200).json({
+            settlement_id: settlementId,
+            acked: true,
+            acked_at: raceAck.ackedAt.toISOString(),
+            ack_user_sub: raceAck.userSub,
+          });
+        }
+      }
+      throw err;
+    }
+  } catch (error: any) {
+    console.error('Error acking settlement:', error);
+    return errorResponse(res, 500, ErrorCode.INTERNAL_ERROR, 'Failed to ack settlement');
   }
 };
 
