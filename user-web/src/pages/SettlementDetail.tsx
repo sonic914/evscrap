@@ -320,10 +320,20 @@ export default function SettlementDetailPage() {
             </div>
           )}
 
-          {/* ACK 완료 표시 */}
+          {/* ACK 완료 표시 + 앵커 상태 */}
           {data.acked && (
             <div style={{ padding: 12, border: '1px solid #28a745', borderRadius: 8, background: '#d4edda', marginBottom: 16 }}>
               ✅ 확인 완료 ({data.acked_at ? new Date(data.acked_at).toLocaleString('ko') : ''})
+              {(data as any).anchor_status && (
+                <span style={{
+                  marginLeft: 8, padding: '2px 8px', borderRadius: 8, fontSize: 11, color: '#fff',
+                  background: (data as any).anchor_status === 'VERIFIED' ? '#28a745'
+                    : (data as any).anchor_status === 'PENDING' ? '#fd7e14'
+                    : (data as any).anchor_status === 'FAILED' ? '#dc3545' : '#6c757d',
+                }}>
+                  앵커: {(data as any).anchor_status}
+                </span>
+              )}
             </div>
           )}
 

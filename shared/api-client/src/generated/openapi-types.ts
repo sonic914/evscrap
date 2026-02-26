@@ -882,6 +882,16 @@ export interface components {
             /** Format: date-time */
             acked_at: string;
             ack_user_sub?: string;
+            /**
+             * Format: uuid
+             * @description ACK 앵커링 이벤트 ID
+             */
+            anchor_event_id?: string | null;
+            /**
+             * @description ACK 앵커링 상태
+             * @enum {string|null}
+             */
+            anchor_status?: "NONE" | "PENDING" | "VERIFIED" | "FAILED" | null;
         };
         Settlement: {
             /** Format: uuid */

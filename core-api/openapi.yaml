@@ -1738,6 +1738,16 @@ components:
           format: date-time
         ack_user_sub:
           type: string
+        anchor_event_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: ACK 앵커링 이벤트 ID
+        anchor_status:
+          type: string
+          enum: [NONE, PENDING, VERIFIED, FAILED]
+          nullable: true
+          description: ACK 앵커링 상태
 
     Settlement:
       type: object

@@ -1,7 +1,12 @@
 import { Request, Response } from 'express';
+import { createHash } from 'crypto';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import prisma from '../prisma';
 import { toSnakeCaseKeys, errorResponse, ErrorCode } from '../utils/response';
 import { logger } from '../utils/logger';
+
+const sqs = new SQSClient({ region: process.env.AWS_REGION || 'ap-northeast-2' });
+const ANCHOR_QUEUE_URL = process.env.ANCHOR_QUEUE_URL;
 
 /** Settlement에 ack 정보를 부착하는 헬퍼 */
 function attachAckInfo(settlement: any, userSub?: string) {
@@ -326,42 +331,116 @@ export const ackSettlement = async (req: Request, res: Response) => {
         { current_status: settlement.status, required_status: 'COMMITTED' });
     }
 
-    // D) 이미 ACK 존재하면 200 반환(멱등)
+    // D) 이미 ACK 존재하면 200 반환(멱등) — 앵커 상태도 포함
     const existingAck = await prisma.settlementAck.findUnique({
       where: { settlementId_userSub: { settlementId, userSub } },
     });
     if (existingAck) {
+      // 앵커 이벤트 상태 조회
+      let anchorStatus: string | null = null;
+      if (existingAck.anchorEventId) {
+        const ev = await prisma.event.findUnique({ where: { id: existingAck.anchorEventId }, select: { anchorStatus: true } });
+        anchorStatus = ev?.anchorStatus ?? null;
+      }
       return res.status(200).json({
         settlement_id: settlementId,
         acked: true,
         acked_at: existingAck.ackedAt.toISOString(),
         ack_user_sub: existingAck.userSub,
+        anchor_event_id: existingAck.anchorEventId ?? null,
+        anchor_status: anchorStatus,
       });
     }
 
-    // E) ACK 생성
+    // E) ACK + SETTLEMENT_ACK 이벤트 생성 (트랜잭션)
     const idempotencyKey = req.headers['idempotency-key'] as string | undefined;
     const ip = req.headers['x-forwarded-for'] as string || req.socket?.remoteAddress || null;
     const userAgent = req.headers['user-agent'] || null;
+    const now = new Date();
+
+    // canonical hash 생성
+    const ackPayload = {
+      ack_user_sub: userSub,
+      acked_at: now.toISOString(),
+      settlement_id: settlementId,
+      receipt_hash: settlement.receiptHash || null,
+    };
+    const canonicalData = JSON.stringify({
+      targetType: 'SETTLEMENT',
+      targetId: settlementId,
+      event_type: 'SETTLEMENT_ACK',
+      payload: ackPayload,
+      occurredAt: now.toISOString(),
+    });
+    const canonicalHash = createHash('sha256').update(canonicalData).digest('hex');
 
     try {
-      const ack = await prisma.settlementAck.create({
-        data: {
-          settlementId,
-          userSub,
-          idempotencyKey: idempotencyKey || null,
-          ip: ip || null,
-          userAgent: userAgent || null,
-        },
+      const { ack, event } = await prisma.$transaction(async (tx) => {
+        // 이벤트 생성 (중복 방지: 동일 targetType/targetId/eventType 조회)
+        let anchorEvent = await tx.event.findFirst({
+          where: { targetType: 'SETTLEMENT', targetId: settlementId, eventType: 'SETTLEMENT_ACK' },
+        });
+        if (!anchorEvent) {
+          anchorEvent = await tx.event.create({
+            data: {
+              targetType: 'SETTLEMENT',
+              targetId: settlementId,
+              eventType: 'SETTLEMENT_ACK',
+              occurredAt: now,
+              payload: ackPayload,
+              canonicalHash,
+              anchorStatus: 'PENDING',
+              tenantId,
+            },
+          });
+        }
+
+        // ACK 생성 + anchorEventId 연결
+        const newAck = await tx.settlementAck.create({
+          data: {
+            settlementId,
+            userSub,
+            ackedAt: now,
+            idempotencyKey: idempotencyKey || null,
+            ip: ip || null,
+            userAgent: userAgent || null,
+            anchorEventId: anchorEvent.id,
+          },
+        });
+
+        return { ack: newAck, event: anchorEvent };
       });
 
-      logger.info('SETTLEMENT_ACK_CREATED', { settlement_id: settlementId, user_sub: userSub });
+      logger.info('SETTLEMENT_ACK_CREATED', {
+        settlement_id: settlementId,
+        user_sub: userSub,
+        anchor_event_id: event.id,
+      });
+
+      // SQS enqueue (트랜잭션 밖 — 실패해도 ACK은 생성됨)
+      if (ANCHOR_QUEUE_URL) {
+        try {
+          await sqs.send(new SendMessageCommand({
+            QueueUrl: ANCHOR_QUEUE_URL,
+            MessageBody: JSON.stringify({ eventId: event.id }),
+            MessageAttributes: {
+              eventType: { DataType: 'String', StringValue: 'SETTLEMENT_ACK' },
+              targetType: { DataType: 'String', StringValue: 'SETTLEMENT' },
+            },
+          }));
+          logger.info('SETTLEMENT_ACK_SQS_SENT', { event_id: event.id });
+        } catch (sqsErr) {
+          logger.error('SETTLEMENT_ACK_SQS_FAILED', { event_id: event.id, error: String(sqsErr) });
+        }
+      }
 
       return res.status(201).json({
         settlement_id: settlementId,
         acked: true,
         acked_at: ack.ackedAt.toISOString(),
         ack_user_sub: ack.userSub,
+        anchor_event_id: event.id,
+        anchor_status: event.anchorStatus,
       });
     } catch (err: any) {
       // unique 충돌(race condition) → 재조회
@@ -370,11 +449,18 @@ export const ackSettlement = async (req: Request, res: Response) => {
           where: { settlementId_userSub: { settlementId, userSub } },
         });
         if (raceAck) {
+          let anchorStatus: string | null = null;
+          if (raceAck.anchorEventId) {
+            const ev = await prisma.event.findUnique({ where: { id: raceAck.anchorEventId }, select: { anchorStatus: true } });
+            anchorStatus = ev?.anchorStatus ?? null;
+          }
           return res.status(200).json({
             settlement_id: settlementId,
             acked: true,
             acked_at: raceAck.ackedAt.toISOString(),
             ack_user_sub: raceAck.userSub,
+            anchor_event_id: raceAck.anchorEventId ?? null,
+            anchor_status: anchorStatus,
           });
         }
       }

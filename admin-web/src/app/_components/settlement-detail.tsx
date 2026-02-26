@@ -214,6 +214,16 @@ export default function SettlementDetailClient() {
                   {(settlement as any).ack_user_sub && (
                     <span style={{ marginLeft: 8, fontFamily: 'monospace', fontSize: 11 }}>user: {(settlement as any).ack_user_sub}</span>
                   )}
+                  {(settlement as any).anchor_status && (
+                    <span style={{
+                      marginLeft: 8, padding: '2px 8px', borderRadius: 8, fontSize: 11, color: '#fff',
+                      background: (settlement as any).anchor_status === 'VERIFIED' ? '#28a745'
+                        : (settlement as any).anchor_status === 'PENDING' ? '#fd7e14'
+                        : (settlement as any).anchor_status === 'FAILED' ? '#dc3545' : '#6c757d',
+                    }}>
+                      앵커: {(settlement as any).anchor_status}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div style={{ padding: 8, background: '#fff3cd', borderRadius: 4, fontSize: 13, color: '#856404' }}>

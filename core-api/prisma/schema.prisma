@@ -188,6 +188,7 @@ model SettlementAck {
     idempotencyKey String?  @map("idempotency_key")
     ip             String?
     userAgent      String?  @map("user_agent")
+    anchorEventId  String?  @unique @map("anchor_event_id")
 
     settlement Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
 

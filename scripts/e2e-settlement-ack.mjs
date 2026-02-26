@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * E2E: Settlement ACK (P2-4.1)
+ * E2E: Settlement ACK (P2-4.1 + P2-4.2 앵커 이벤트)
  *
  * 전략: "이미 존재하는 COMMITTED settlement"을 admin API로 조회하여 사용.
  * 없으면 DRAFT settlement을 admin approve → commit 하여 COMMITTED로 만듦.
@@ -139,25 +139,33 @@ async function main() {
     console.log('  ⏭️ non-committed settlement 없음, 스킵');
   }
 
-  // ── Test 2: ACK 성공 → 201 ──
-  console.log('\n[Test 2] COMMITTED settlement ACK → 201');
+  // ── Test 2: ACK 성공 → 201 + anchor_event_id/anchor_status 존재 ──
+  let firstAnchorEventId = null;
+  console.log('\n[Test 2] COMMITTED settlement ACK → 201 (+ 앵커 이벤트)');
   if (committed) {
     const res = await userPost(`/user/v1/settlements/${committed.settlement_id}/ack`, {}, { 'Idempotency-Key': crypto.randomUUID() });
     const body = await json(res);
     assert(res.status === 201 || res.status === 200, `status=${res.status} (expected 201 or 200)`);
     assert(body?.acked === true, `acked=${body?.acked}`);
     assert(!!body?.acked_at, `acked_at=${body?.acked_at}`);
+    // P2-4.2: 앵커 이벤트 검증
+    assert(typeof body?.anchor_event_id === 'string' && body.anchor_event_id.length > 0, `anchor_event_id 존재: ${body?.anchor_event_id?.slice(0,8)}…`);
+    assert(['PENDING', 'VERIFIED', 'FAILED', 'NONE'].includes(body?.anchor_status), `anchor_status=${body?.anchor_status} (유효한 값)`);
+    firstAnchorEventId = body?.anchor_event_id;
   } else {
     console.log('  ⏭️ COMMITTED settlement 없음, 스킵 (앵커 gate 미통과)');
   }
 
-  // ── Test 3: 동일 사용자 재 ACK → 200 (멱등) ──
-  console.log('\n[Test 3] 동일 사용자 재 ACK → 200 (멱등)');
+  // ── Test 3: 동일 사용자 재 ACK → 200 (멱등) + 동일 anchor_event_id ──
+  console.log('\n[Test 3] 동일 사용자 재 ACK → 200 (멱등 + 동일 anchor_event_id)');
   if (committed) {
     const res = await userPost(`/user/v1/settlements/${committed.settlement_id}/ack`, {}, { 'Idempotency-Key': crypto.randomUUID() });
     const body = await json(res);
     assert(res.status === 200, `status=${res.status} (expected 200)`);
     assert(body?.acked === true, `acked=${body?.acked}`);
+    // P2-4.2: 동일 anchor_event_id 유지 확인
+    assert(body?.anchor_event_id === firstAnchorEventId, `anchor_event_id 동일: ${body?.anchor_event_id === firstAnchorEventId}`);
+    assert(['PENDING', 'VERIFIED', 'FAILED', 'NONE'].includes(body?.anchor_status), `anchor_status=${body?.anchor_status}`);
   } else {
     console.log('  ⏭️ 스킵');
   }
