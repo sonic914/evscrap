@@ -13,6 +13,8 @@ on:
       - "scripts/db-smoke.mjs"
       - "scripts/e2e-idempotency.mjs"
       - "scripts/e2e-admin-read.mjs"
+      - "scripts/e2e-dispute.mjs"
+      - "scripts/e2e-settlement-ack.mjs"
       - "scripts/resolve-outputs.mjs"
       - "scripts/get-api-endpoint.mjs"
       - "scripts/smoke-test.sh"
@@ -105,7 +107,16 @@ jobs:
             --query 'Stacks[0].Outputs[?OutputKey==`DatabaseProxyEndpoint`].OutputValue' \
             --output text)
           
-          SQL_B64=$(base64 -w0 < core-api/prisma/migrations/20260210132900_idempotency_v2/migration.sql)
+          # 모든 마이그레이션 SQL을 순서대로 결합
+          cat core-api/prisma/migrations/20260207120226_init/migration.sql \
+              core-api/prisma/migrations/20260210132900_idempotency_v2/migration.sql \
+              core-api/prisma/migrations/20260215124200_evidence_target/migration.sql \
+              core-api/prisma/migrations/20260216_settlement_breakdown/migration.sql \
+              core-api/prisma/migrations/20260226_settlement_ack/migration.sql \
+              core-api/prisma/migrations/20260226_settlement_ack_anchor/migration.sql \
+              core-api/prisma/migrations/20260226_settlement_dispute/migration.sql \
+              > /tmp/all-migrations.sql
+          SQL_B64=$(base64 -w0 < /tmp/all-migrations.sql)
           
           echo "Applying migrations via Bastion SSM (secrets read on-instance)..."
           
@@ -173,7 +184,7 @@ jobs:
               --query 'StandardErrorContent' --output text 2>/dev/null || true
             echo "❌ Migration failed"; exit 1
           fi
-          echo "✅ idempotency_records v2 migration applied"
+          echo "✅ All migrations applied (idempotent)"
 
       # ---- Resolve Outputs + Smoke Tests ----
       - name: Resolve CDK Outputs
@@ -221,6 +232,16 @@ jobs:
           TEST_ADMIN_USERNAME: ${{ secrets.TEST_ADMIN_USERNAME }}
           TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
         run: node scripts/e2e-admin-read.mjs
+        continue-on-error: true
+
+      # ---- Settlement Dispute E2E Test (P2-5.1) ----
+      - name: Settlement Dispute E2E Test
+        env:
+          TEST_USER_USERNAME: ${{ secrets.TEST_USER_USERNAME }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+          TEST_ADMIN_USERNAME: ${{ secrets.TEST_ADMIN_USERNAME }}
+          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+        run: node scripts/e2e-dispute.mjs
         continue-on-error: true
 
       - name: Output deployment info

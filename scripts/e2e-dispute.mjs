@@ -16,12 +16,41 @@
  * 8) user get dispute에서 status 업데이트 확인
  */
 
-const API = process.env.API_BASE;
-const USER_TOKEN = process.env.USER_TOKEN;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+import { execSync } from 'node:child_process';
+
+const API = (process.env.API_BASE || '').replace(/\/$/, '');
+let USER_TOKEN = process.env.USER_TOKEN;
+let ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+const REGION = process.env.AWS_REGION || 'ap-northeast-2';
+
+// Cognito 자동 토큰 발급 (GitHub Actions용)
+function getIdToken(poolId, clientId, username, password, label) {
+  console.log(`🔑 [${label}] Cognito 토큰 발급...`);
+  const input = JSON.stringify({
+    ClientId: clientId, AuthFlow: 'USER_PASSWORD_AUTH',
+    AuthParameters: { USERNAME: username, PASSWORD: password },
+  });
+  const cmd = `aws cognito-idp initiate-auth --cli-input-json '${input.replace(/'/g, "'\\''")}' --region ${REGION} --output json`;
+  const result = JSON.parse(execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }));
+  const token = result.AuthenticationResult?.IdToken;
+  if (!token) throw new Error(`${label} IdToken 없음`);
+  console.log(`  ✅ [${label}] 토큰 발급 성공`);
+  return token;
+}
+
+if (!USER_TOKEN && process.env.TEST_USER_USERNAME) {
+  USER_TOKEN = getIdToken(
+    process.env.USER_POOL_ID, process.env.USER_POOL_CLIENT_ID,
+    process.env.TEST_USER_USERNAME, process.env.TEST_USER_PASSWORD, 'User');
+}
+if (!ADMIN_TOKEN && process.env.TEST_ADMIN_USERNAME) {
+  ADMIN_TOKEN = getIdToken(
+    process.env.ADMIN_POOL_ID, process.env.ADMIN_POOL_CLIENT_ID,
+    process.env.TEST_ADMIN_USERNAME, process.env.TEST_ADMIN_PASSWORD, 'Admin');
+}
 
 if (!API || !USER_TOKEN || !ADMIN_TOKEN) {
-  console.error('필수 환경변수: API_BASE, USER_TOKEN, ADMIN_TOKEN');
+  console.error('필수: API_BASE + (USER_TOKEN/ADMIN_TOKEN 또는 Cognito 환경변수)');
   process.exit(1);
 }
 
