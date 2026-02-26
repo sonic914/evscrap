@@ -221,6 +221,26 @@ model SettlementBreakdownItem {
     @@map("settlement_breakdown_items")
 }
 
+// ==================== Settlement Disputes ====================
+
+model SettlementDispute {
+    id           String   @id @default(cuid()) @map("dispute_id")
+    settlementId String   @map("settlement_id")
+    tenantId     String   @map("tenant_id")
+    userSub      String   @map("user_sub")
+    reasonCode   String   @map("reason_code") // AMOUNT_ERROR, MISSING_ITEM, GRADE_DISPUTE, OTHER
+    description  String
+    evidenceIds  Json?    @map("evidence_ids") // string[] JSON
+    status       String   @default("OPEN") // OPEN, UNDER_REVIEW, NEEDS_INFO, RESOLVED_ACCEPTED, RESOLVED_REJECTED
+    adminNote    String?  @map("admin_note")
+    createdAt    DateTime @default(now()) @map("created_at")
+    updatedAt    DateTime @updatedAt @map("updated_at")
+
+    @@index([tenantId, status, createdAt])
+    @@index([settlementId, userSub, status])
+    @@map("settlement_disputes")
+}
+
 // ==================== Idempotency Records ====================
 
 model IdempotencyRecord {

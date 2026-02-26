@@ -208,8 +208,14 @@ export default function SettlementDetailPage() {
           )}
 
           {data.status === 'COMMITTED' && (
-            <div style={{ padding: 12, border: '1px solid #007bff', borderRadius: 8, background: '#cce5ff', marginBottom: 16 }}>
-              🎉 정산이 확정(커밋)되었습니다.
+            <div style={{ padding: 12, border: '1px solid #007bff', borderRadius: 8, background: '#cce5ff', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>🎉 정산이 확정(커밋)되었습니다.</span>
+              <Link
+                to={`/disputes/new?settlementId=${data.settlement_id}&targetType=${data.target_type}&targetId=${data.target_id}`}
+                style={{ padding: '6px 16px', background: '#dc3545', color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: 13, fontWeight: 'bold' }}
+              >
+                🚨 이의제기
+              </Link>
             </div>
           )}
 

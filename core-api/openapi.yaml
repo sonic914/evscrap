@@ -887,6 +887,172 @@ paths:
         '409':
           $ref: '#/components/responses/AnchorNotVerified'
 
+    # ── Dispute (User) ──
+  /user/v1/settlements/{settlementId}/disputes:
+    post:
+      summary: 이의제기 생성
+      operationId: createDispute
+      tags: [User - Dispute]
+      security:
+        - userJwt: []
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisputeCreateRequest'
+      responses:
+        '201':
+          description: 이의제기 생성됨
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dispute'
+        '409':
+          description: 활성 이의제기 존재 또는 상태 오류
+
+  /user/v1/disputes:
+    get:
+      summary: 내 이의제기 목록
+      operationId: listMyDisputes
+      tags: [User - Dispute]
+      security:
+        - userJwt: []
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: settlement_id
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 이의제기 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Dispute'
+                  total:
+                    type: integer
+
+  /user/v1/disputes/{disputeId}:
+    get:
+      summary: 이의제기 상세
+      operationId: getMyDispute
+      tags: [User - Dispute]
+      security:
+        - userJwt: []
+      parameters:
+        - name: disputeId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 이의제기 상세
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dispute'
+
+  # ── Dispute (Admin) ──
+  /admin/v1/disputes:
+    get:
+      summary: 전체 이의제기 목록
+      operationId: listDisputes
+      tags: [Admin - Dispute]
+      security:
+        - adminJwt: []
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: tenant_id
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: 이의제기 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Dispute'
+                  total:
+                    type: integer
+
+  /admin/v1/disputes/{disputeId}:
+    get:
+      summary: 이의제기 상세
+      operationId: getDisputeAdmin
+      tags: [Admin - Dispute]
+      security:
+        - adminJwt: []
+      parameters:
+        - name: disputeId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 이의제기 상세
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dispute'
+
+  /admin/v1/disputes/{disputeId}/transition:
+    post:
+      summary: 이의제기 상태 전이
+      operationId: transitionDispute
+      tags: [Admin - Dispute]
+      security:
+        - adminJwt: []
+      parameters:
+        - name: disputeId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisputeTransitionRequest'
+      responses:
+        '200':
+          description: 전이 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dispute'
+        '409':
+          description: 상태 충돌
+
   /admin/v1/policies:
     post:
       summary: 정책 생성
@@ -1788,6 +1954,74 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    DisputeReasonCode:
+      type: string
+      enum: [AMOUNT_ERROR, MISSING_ITEM, GRADE_DISPUTE, OTHER]
+
+    DisputeStatus:
+      type: string
+      enum: [OPEN, UNDER_REVIEW, NEEDS_INFO, RESOLVED_ACCEPTED, RESOLVED_REJECTED]
+
+    Dispute:
+      type: object
+      required: [dispute_id, settlement_id, tenant_id, user_sub, reason_code, description, status, created_at, updated_at]
+      properties:
+        dispute_id:
+          type: string
+        settlement_id:
+          type: string
+        tenant_id:
+          type: string
+        user_sub:
+          type: string
+        reason_code:
+          $ref: '#/components/schemas/DisputeReasonCode'
+        description:
+          type: string
+        evidence_ids:
+          type: array
+          items:
+            type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/DisputeStatus'
+        admin_note:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DisputeCreateRequest:
+      type: object
+      required: [reason_code, description]
+      properties:
+        reason_code:
+          $ref: '#/components/schemas/DisputeReasonCode'
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_ids:
+          type: array
+          items:
+            type: string
+
+    DisputeTransitionRequest:
+      type: object
+      required: [next_status]
+      properties:
+        next_status:
+          $ref: '#/components/schemas/DisputeStatus'
+        admin_note:
+          type: string
+        current_status:
+          $ref: '#/components/schemas/DisputeStatus'
+          description: 낙관적 잠금용 (선택)
 
     ErrorResponse:
       type: object

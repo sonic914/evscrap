@@ -6,6 +6,7 @@ import * as policyController from '../controllers/admin-policy-controller';
 import * as caseController from '../controllers/admin-case-controller';
 import * as timelineController from '../controllers/admin-timeline-controller';
 import * as evidenceController from '../controllers/admin-evidence-controller';
+import * as disputeController from '../controllers/admin-dispute-controller';
 import { requireAdminAuth } from '../middleware/admin-auth';
 
 const router = Router();
@@ -36,6 +37,11 @@ router.get('/settlements/:id', settlementController.getSettlementById);
 router.get('/settlements/:id/breakdown', settlementController.getBreakdown);
 router.post('/settlements/:id/approve', settlementController.approveSettlement);
 router.post('/settlements/:id/commit', settlementController.commitSettlement);
+
+// Disputes
+router.get('/disputes', disputeController.listDisputes);
+router.get('/disputes/:disputeId', disputeController.getDispute);
+router.post('/disputes/:disputeId/transition', disputeController.transitionDispute);
 
 // Policies
 router.post('/policies', policyController.createPolicy);

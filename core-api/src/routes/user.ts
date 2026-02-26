@@ -8,6 +8,7 @@ import * as lotController from '../controllers/lot-controller';
 import * as evidenceController from '../controllers/evidence-controller';
 import * as eventController from '../controllers/event-controller';
 import * as settlementController from '../controllers/settlement-controller';
+import * as disputeController from '../controllers/dispute-controller';
 
 const router = Router();
 
@@ -31,6 +32,11 @@ router.get('/evidence/:evidenceId/download-url', evidenceController.getDownloadU
 // Settlement list (정적 경로, 동적 라우트보다 먼저)
 router.get('/settlements', settlementController.listSettlements);
 router.post('/settlements/:settlementId/ack', requireIdempotencyKey, idempotency, settlementController.ackSettlement);
+
+// Disputes
+router.post('/settlements/:settlementId/disputes', requireIdempotencyKey, idempotency, disputeController.createDispute);
+router.get('/disputes', disputeController.listDisputes);
+router.get('/disputes/:disputeId', disputeController.getDispute);
 
 // Evidence list by target
 router.get('/:targetType/:targetId/evidence', evidenceController.listEvidenceByTarget);

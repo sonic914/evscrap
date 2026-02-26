@@ -19,6 +19,7 @@ export default function NavBar() {
     { href: '/cases', label: '케이스' },
     { href: '/settlements', label: '정산' },
     { href: '/events', label: '이벤트' },
+    { href: '/disputes', label: '이의제기' },
     { href: '/audit/missing-anchors', label: '감사' },
   ];
 

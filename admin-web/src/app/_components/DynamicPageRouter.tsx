@@ -6,6 +6,7 @@ import { lazy, Suspense, type ReactNode } from 'react';
 const TenantDetail = lazy(() => import('./tenant-detail'));
 const CaseDetail = lazy(() => import('./case-detail'));
 const SettlementDetail = lazy(() => import('./settlement-detail'));
+const DisputeDetail = lazy(() => import('./dispute-detail'));
 
 const LOADING = <div className="loading">로딩 중...</div>;
 
@@ -29,6 +30,11 @@ export default function DynamicPageRouter({ children }: { children: ReactNode })
   // /settlements/[id]/
   if (/^\/settlements\/[^/]+\/?$/.test(pathname)) {
     return <Suspense fallback={LOADING}><SettlementDetail /></Suspense>;
+  }
+
+  // /disputes/[disputeId]/
+  if (/^\/disputes\/[^/]+\/?$/.test(pathname)) {
+    return <Suspense fallback={LOADING}><DisputeDetail /></Suspense>;
   }
 
   return <>{children}</>;

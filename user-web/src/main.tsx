@@ -8,6 +8,9 @@ import CaseNewPage from './pages/CaseNew';
 import CaseDetailPage from './pages/CaseDetail';
 import SettlementsPage from './pages/Settlements';
 import SettlementDetailPage from './pages/SettlementDetail';
+import DisputesPage from './pages/Disputes';
+import DisputeCreatePage from './pages/DisputeCreate';
+import DisputeDetailPage from './pages/DisputeDetail';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -20,6 +23,9 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/cases/:caseId" element={<CaseDetailPage />} />
         <Route path="/settlements" element={<SettlementsPage />} />
         <Route path="/settlements/:targetType/:targetId" element={<SettlementDetailPage />} />
+        <Route path="/disputes" element={<DisputesPage />} />
+        <Route path="/disputes/new" element={<DisputeCreatePage />} />
+        <Route path="/disputes/:disputeId" element={<DisputeDetailPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

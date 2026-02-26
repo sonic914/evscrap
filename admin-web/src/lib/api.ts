@@ -47,6 +47,20 @@ export function makeIdempotencyKey(): string {
  *
  * TODO: openapi-fetch를 0.14+ 또는 1.x로 업그레이드 시 제거
  */
+/**
+ * Raw fetch wrapper for admin endpoints (GET/POST/PUT/DELETE).
+ * Authorization + correlation-id 자동 주입.
+ */
+export async function adminFetch(path: string, init?: RequestInit): Promise<Response> {
+  const token = getAdminToken();
+  const headers: Record<string, string> = {
+    'x-correlation-id': crypto.randomUUID(),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(init?.headers as Record<string, string> || {}),
+  };
+  return fetch(`${API_BASE}${path}`, { ...init, headers });
+}
+
 export async function adminGet<T = unknown>(
   path: string,
   options?: { params?: { path?: Record<string, string>; query?: Record<string, unknown> } },
